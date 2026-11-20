@@ -190,6 +190,7 @@ export function updateFeatureTogglesVisibility() {
 
     const $narratorToggle = $('#rpg-narrator-toggle-wrapper');
     const $autoAvatarsToggle = $('#rpg-auto-avatars-toggle-wrapper');
+    const $autoRollToggle = $('#rpg-auto-roll-toggle-wrapper');
 
     // Show/hide individual toggles
     $htmlToggle.toggle(extensionSettings.showHtmlToggle);
@@ -201,6 +202,7 @@ export function updateFeatureTogglesVisibility() {
 
     $narratorToggle.toggle(extensionSettings.showNarratorMode);
     $autoAvatarsToggle.toggle(extensionSettings.showAutoAvatars);
+    $autoRollToggle.toggle(extensionSettings.showAutoRollToggle ?? true);
 
     // Hide entire row if all toggles are hidden
     const anyVisible = extensionSettings.showHtmlToggle ||
@@ -210,6 +212,7 @@ export function updateFeatureTogglesVisibility() {
                       (extensionSettings.showCYOAToggle ?? true) ||
                       extensionSettings.showSpotifyToggle ||
                       extensionSettings.showNarratorMode ||
+                      (extensionSettings.showAutoRollToggle ?? true) ||
                       extensionSettings.showAutoAvatars;
     $featuresRow.toggle(anyVisible);
 }

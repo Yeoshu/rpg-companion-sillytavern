@@ -256,7 +256,11 @@ export let extensionSettings = {
         wis: 10,
         cha: 10
     },
-    lastDiceRoll: null, // Store last dice roll result
+    lastDiceRoll: null, // Legacy: rolls now live on chat messages (mechanics/rollState.js)
+    skillLevels: {}, // Per-chat skill levels, keyed by lowercase skill name
+    autoRoll: false, // Ask the AI whether the user's message needs a dice check
+    showAutoRollToggle: true, // Show the Auto-Roll toggle in the main panel
+    customAutoRollPrompt: '', // Custom auto-roll check prompt (empty = use default)
     showDiceDisplay: true, // Show the "Last Roll" display in the panel
     collapsedInventoryLocations: [], // Array of collapsed storage location names
     inventoryViewModes: {
@@ -431,6 +435,12 @@ export function incrementSeparateGenerationId() {
 export let pendingDiceRoll = null;
 
 /**
+ * A roll saved before the user sends their message. It attaches to the next
+ * user message (see mechanics/rollState.js) and is saved per chat.
+ */
+export let queuedDiceRoll = null;
+
+/**
  * Debug logs array for troubleshooting
  */
 export let debugLogs = [];
@@ -535,6 +545,10 @@ export function setPendingDiceRoll(roll) {
 
 export function getPendingDiceRoll() {
     return pendingDiceRoll;
+}
+
+export function setQueuedDiceRoll(roll) {
+    queuedDiceRoll = roll;
 }
 
 export function setPanelContainer($element) {

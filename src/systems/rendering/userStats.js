@@ -23,6 +23,12 @@ import { buildInventorySummary } from '../generation/promptBuilder.js';
 import { isItemLocked, setItemLock } from '../generation/lockManager.js';
 import { updateFabWidgets } from '../ui/mobile.js';
 import { getStatBarColors } from '../ui/theme.js';
+import { attributeRoll, formatTarget, formatModifier } from '../mechanics/rules.js';
+import { getSkills } from '../mechanics/character.js';
+
+function escapeAttr(text) {
+    return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
 
 /**
  * Extracts the base name (before parentheses) and converts to snake_case for use as JSON key.
@@ -389,6 +395,23 @@ export function renderUserStats() {
                 <div class="rpg-skills-value rpg-editable" contenteditable="true" data-field="skills" title="${i18n.getTranslation('userStats.clickToEditSkills') || 'Click to edit skills'}">${skillsValue}</div>
             </div>
         `;
+
+        // Skill levels: the numbers the dice rules use (saved per chat)
+        const skills = getSkills();
+        if (skills.length > 0) {
+            const levelTitle = escapeAttr(i18n.getTranslation('userStats.skillLevelTitle') || 'Skill level: added to the attribute roll when this skill is used.');
+            html += '<div class="rpg-skill-levels">';
+            for (const skill of skills) {
+                html += `
+                <span class="rpg-skill-chip" data-skill="${escapeAttr(skill.key)}" title="${levelTitle}">
+                    <span class="rpg-skill-chip-name">${escapeAttr(skill.name)}</span>
+                    <button class="rpg-skill-btn rpg-skill-decrease" type="button" aria-label="Lower ${escapeAttr(skill.name)}">−</button>
+                    <span class="rpg-skill-chip-level">${formatModifier(skill.level)}</span>
+                    <button class="rpg-skill-btn rpg-skill-increase" type="button" aria-label="Raise ${escapeAttr(skill.name)}">+</button>
+                </span>`;
+            }
+            html += '</div>';
+        }
     }
 
     html += '</div>'; // Close rpg-stats-left
@@ -416,6 +439,7 @@ export function renderUserStats() {
                     <div class="rpg-classic-stats-grid">
         `;
 
+            const rollTitle = escapeAttr(i18n.getTranslation('userStats.attributeRollTitle') || 'Roll 3d6 under or equal to this number. 9 + attribute / 5.');
             enabledAttributes.forEach(attr => {
                 const value = extensionSettings.classicStats[attr.id] !== undefined ? extensionSettings.classicStats[attr.id] : 10;
                 html += `
@@ -423,9 +447,10 @@ export function renderUserStats() {
                             <span class="rpg-classic-stat-label">${attr.name}</span>
                             <div class="rpg-classic-stat-buttons">
                                 <button class="rpg-classic-stat-btn rpg-stat-decrease" data-stat="${attr.id}">−</button>
-                                <span class="rpg-classic-stat-value">${value}</span>
+                                <span class="rpg-classic-stat-value rpg-editable" contenteditable="true" data-stat="${attr.id}">${value}</span>
                                 <button class="rpg-classic-stat-btn rpg-stat-increase" data-stat="${attr.id}">+</button>
                             </div>
+                            <span class="rpg-classic-stat-roll" title="${rollTitle}">${formatTarget(attributeRoll(value))}</span>
                         </div>
             `;
             });
@@ -529,6 +554,9 @@ export function renderUserStats() {
         saveSettings();
         saveChatData();
         updateMessageSwipeData();
+
+        // Skill chips are derived from this list
+        renderUserStats();
     });
 
     // Add event listeners for stat name editing

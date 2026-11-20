@@ -148,6 +148,8 @@ import { setupClassicStatsButtons } from './src/systems/features/classicStats.js
 import { ensureHtmlCleaningRegex, detectConflictingRegexScripts, ensureTrackerCleaningRegex } from './src/systems/features/htmlCleaning.js';
 import { ensureJsonCleaningRegex, removeJsonCleaningRegex } from './src/systems/features/jsonCleaning.js';
 import { parseAndStoreSpotifyUrl } from './src/systems/features/musicPlayer.js';
+import { maybeAutoRoll } from './src/systems/features/autoRoll.js';
+import { attachQueuedRollTo, updateDiceInjection } from './src/systems/mechanics/rollState.js';
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
 import { openEncounterModal } from './src/systems/ui/encounterUI.js';
 
@@ -437,6 +439,11 @@ async function initUI() {
         saveSettings();
     });
 
+    $('#rpg-toggle-auto-roll').on('change', function() {
+        extensionSettings.autoRoll = $(this).prop('checked');
+        saveSettings();
+    });
+
     $('#rpg-skip-guided-mode').on('change', function() {
         extensionSettings.skipInjectionsForGuided = String($(this).val());
         saveSettings();
@@ -618,6 +625,17 @@ async function initUI() {
         if (!extensionSettings.showNarratorMode) {
             extensionSettings.narratorMode = false;
             $('#rpg-toggle-narrator').prop('checked', false);
+        }
+        saveSettings();
+        updateFeatureTogglesVisibility();
+    });
+
+    $('#rpg-toggle-show-auto-roll').on('change', function() {
+        extensionSettings.showAutoRollToggle = $(this).prop('checked');
+        // Hiding the toggle also turns the feature off, like the other feature toggles
+        if (!extensionSettings.showAutoRollToggle) {
+            extensionSettings.autoRoll = false;
+            $('#rpg-toggle-auto-roll').prop('checked', false);
         }
         saveSettings();
         updateFeatureTogglesVisibility();
@@ -1058,6 +1076,7 @@ async function initUI() {
     $('#rpg-toggle-spotify-music').prop('checked', extensionSettings.enableSpotifyMusic);
 
     $('#rpg-toggle-narrator').prop('checked', extensionSettings.narratorMode);
+    $('#rpg-toggle-auto-roll').prop('checked', extensionSettings.autoRoll === true);
 
     // Feature toggle visibility settings
     $('#rpg-toggle-show-html-toggle').prop('checked', extensionSettings.showHtmlToggle ?? true);
@@ -1067,6 +1086,7 @@ async function initUI() {
     $('#rpg-toggle-show-cyoa-toggle').prop('checked', extensionSettings.showCYOAToggle ?? true);
     $('#rpg-toggle-show-spotify-toggle').prop('checked', extensionSettings.showSpotifyToggle ?? true);
     $('#rpg-toggle-show-narrator-mode').prop('checked', extensionSettings.showNarratorMode ?? true);
+    $('#rpg-toggle-show-auto-roll').prop('checked', extensionSettings.showAutoRollToggle ?? true);
     $('#rpg-toggle-show-auto-avatars').prop('checked', extensionSettings.showAutoAvatars ?? true);
 
     $('#rpg-toggle-randomized-plot').prop('checked', extensionSettings.enableRandomizedPlot ?? true);
@@ -1207,6 +1227,26 @@ async function initUI() {
 // Event handlers removed - now imported from src/systems/integration/sillytavern.js
 // (commitTrackerData, onMessageSent, onMessageReceived, onCharacterChanged,
 //  onMessageSwiped, updatePersonaAvatar, clearExtensionPrompts)
+
+/**
+ * SillyTavern awaits this before building each prompt (manifest "generate_interceptor"),
+ * after the user's message has been added to the chat.
+ * Runs the auto-roll check, then sets the dice prompt for this generation.
+ */
+globalThis.rpgCompanionGenerateInterceptor = async function (_chat, _contextSize, _abort, type) {
+    try {
+        // Quiet generations (other extensions, summaries) and impersonation never get dice context.
+        if (!extensionSettings.enabled || type === 'quiet' || type === 'impersonate') {
+            updateDiceInjection(false);
+            return;
+        }
+        await maybeAutoRoll(type);
+        updateDiceInjection(true);
+        updateDiceDisplay();
+    } catch (error) {
+        console.error('[RPG Companion] Generate interceptor failed:', error);
+    }
+};
 
 /**
  * Main initialization function.
@@ -1378,6 +1418,20 @@ jQuery(async () => {
                 clearThoughtBasedExpressionsCache();
                 setTimeout(() => onThoughtBasedExpressionsChatChanged(), 0);
             });
+
+            // Dice: a roll queued before sending attaches to the message it was meant for.
+            eventSource.on(event_types.MESSAGE_SENT, (messageId) => {
+                if (extensionSettings.enabled && attachQueuedRollTo(Number(messageId))) {
+                    saveChatData();
+                }
+                updateDiceDisplay();
+            });
+
+            // Rolls are per chat / per message, so refresh the display when either changes.
+            for (const evt of [event_types.CHAT_CHANGED, event_types.MESSAGE_DELETED, event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED]) {
+                if (evt) eventSource.on(evt, () => setTimeout(() => updateDiceDisplay(), 0));
+            }
+            $(document).on('rpg:diceRollChanged', () => updateDiceDisplay());
 
             eventSource.on(event_types.MESSAGE_DELETED, () => {
                 if (!extensionSettings.enabled) {

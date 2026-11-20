@@ -416,19 +416,9 @@ export function generateTrackerInstructions(includeHtmlPrompt = true, includeCon
             }
         }
 
-        // Add dice roll context if there was one (independent of attributes)
-        if (extensionSettings.lastDiceRoll) {
-            const roll = extensionSettings.lastDiceRoll;
-            const showRPGAttributes = trackerConfig?.userStats?.showRPGAttributes !== false;
-            const alwaysSendAttributes = trackerConfig?.userStats?.alwaysSendAttributes;
-            const hasAttributes = includeAttributes && (alwaysSendAttributes && showRPGAttributes);
-
-            if (hasAttributes) {
-                instructions += `${userName} rolled ${roll.total} on the last ${roll.formula} roll. Based on their attributes, decide whether they succeeded or failed the action they attempted.\n\n`;
-            } else {
-                instructions += `${userName} rolled ${roll.total} on the last ${roll.formula} roll. Decide whether they succeeded or failed the action they attempted.\n\n`;
-            }
-        } else if (includeAttributes && trackerConfig?.userStats?.alwaysSendAttributes && trackerConfig?.userStats?.showRPGAttributes !== false) {
+        // Dice rolls are injected separately (mechanics/rollState.js) so they only
+        // reach the main reply, never tracker-update or encounter prompts.
+        if (includeAttributes && trackerConfig?.userStats?.alwaysSendAttributes && trackerConfig?.userStats?.showRPGAttributes !== false) {
             instructions += `\n`;
         }
     }
@@ -1083,16 +1073,8 @@ export function generateContextualSummary() {
         summary += `${userName}'s attributes: ${attributesString}\n`;
     }
 
-    // Add dice roll context if there was one (independent of attributes)
-    if (extensionSettings.lastDiceRoll) {
-        const roll = extensionSettings.lastDiceRoll;
-
-        if (shouldSendAttributes) {
-            summary += `${userName} rolled ${roll.total} on the last ${roll.formula} roll. Based on their attributes, decide whether they succeeded or failed the action they attempted.\n\n`;
-        } else {
-            summary += `${userName} rolled ${roll.total} on the last ${roll.formula} roll. Decide whether they succeeded or failed the action they attempted.\n\n`;
-        }
-    } else if (shouldSendAttributes) {
+    // Dice rolls are injected separately (mechanics/rollState.js).
+    if (shouldSendAttributes) {
         summary += `\n`;
     }
 

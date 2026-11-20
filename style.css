@@ -1161,6 +1161,139 @@ input[type="color"]:is(#rpg-custom-bg, #rpg-custom-accent, #rpg-custom-text, #rp
     }
 }
 
+/* 3d6 roll target under each attribute, e.g. "11-" */
+.rpg-classic-stat-roll {
+    color: var(--rpg-muted);
+    font-size: 0.75em;
+    font-variant-numeric: tabular-nums;
+    cursor: help;
+}
+
+.rpg-classic-stat-value.rpg-editable {
+    padding: 0 0.1em;
+}
+
+/* Skill levels */
+.rpg-skill-levels {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25em;
+}
+
+.rpg-skill-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15em;
+    padding: 0.05em 0.2em 0.05em 0.5em;
+    font-size: 0.85em;
+    background: var(--rpg-faint);
+    border: 1px solid var(--rpg-border);
+    border-radius: 1em;
+}
+
+.rpg-skill-chip-name {
+    margin-right: 0.2em;
+}
+
+.rpg-skill-chip-level {
+    min-width: 1.6em;
+    color: var(--rpg-highlight);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+
+.rpg-skill-btn {
+    width: 1.2em;
+    height: 1.2em;
+    padding: 0;
+    color: var(--rpg-muted);
+    background: none;
+    border: 0;
+    border-radius: 50%;
+    font: inherit;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--rpg-dur);
+}
+
+.rpg-skill-chip:hover .rpg-skill-btn,
+.rpg-skill-btn:focus-visible {
+    opacity: 1;
+}
+
+.rpg-skill-btn:hover {
+    color: var(--rpg-text);
+    background: var(--rpg-hover);
+}
+
+@media (hover: none) {
+    .rpg-skill-btn {
+        opacity: 1;
+    }
+}
+
+/* Auto-roll confirmation (inside SillyTavern's own popup) */
+.rpg-roll-prompt {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    text-align: left;
+}
+
+.rpg-roll-prompt h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.45em;
+    margin: 0;
+}
+
+.rpg-roll-prompt h3 i {
+    color: var(--SmartThemeQuoteColor, var(--rpg-highlight));
+}
+
+.rpg-roll-reason {
+    margin: 0;
+    font-style: italic;
+    color: var(--SmartThemeEmColor, var(--rpg-muted));
+}
+
+.rpg-roll-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(10em, 1fr));
+    gap: 0.4em 0.6em;
+}
+
+.rpg-roll-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15em;
+    font-size: 0.9em;
+}
+
+.rpg-roll-fields .text_pole {
+    margin: 0;
+}
+
+.rpg-roll-target {
+    padding: 0.5em 0.7em;
+    text-align: center;
+    background: var(--black30a, rgba(0, 0, 0, 0.3));
+    border: 1px solid var(--SmartThemeBorderColor, var(--rpg-border));
+    border-radius: 5px;
+}
+
+.rpg-roll-target strong {
+    font-size: 1.3em;
+    color: var(--SmartThemeQuoteColor, var(--rpg-highlight));
+}
+
+.rpg-roll-target small,
+.rpg-roll-chance {
+    color: var(--SmartThemeEmColor, var(--rpg-muted));
+}
+
 /* Info box ------------------------------------------------------------- */
 
 .rpg-info-content {
