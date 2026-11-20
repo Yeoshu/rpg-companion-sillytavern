@@ -214,7 +214,7 @@ export function buildInventorySummary(inventory) {
  *
  * @returns {string} Formatted attributes string (e.g., "STR 10, DEX 12, INT 15, LVL 5")
  */
-function buildAttributesString() {
+export function buildAttributesString() {
     const trackerConfig = extensionSettings.trackerConfig;
     const classicStats = extensionSettings.classicStats;
     const userStatsConfig = trackerConfig?.userStats;

@@ -10,7 +10,7 @@ import { extensionSettings, committedTrackerData } from '../../core/state.js';
 import { currentEncounter } from '../features/encounterState.js';
 import { repairJSON } from '../../utils/jsonRepair.js';
 import { isPresentCharactersEnabled } from '../../utils/presentCharacters.js';
-import { buildInventorySummary, generateTrackerInstructions, generateTrackerExample } from './promptBuilder.js';
+import { buildInventorySummary, generateTrackerInstructions, generateTrackerExample, buildAttributesString } from './promptBuilder.js';
 import { applyLocks } from './lockManager.js';
 
 /**
@@ -233,12 +233,12 @@ export async function buildEncounterInitPrompt() {
     }
 
     // Add classic stats/attributes
+    // (uses the configured attributes, so custom/disabled ones are respected)
     if (extensionSettings.classicStats) {
-        const stats = extensionSettings.classicStats;
-        userStatsInfo += `${userName}'s Attributes: `;
-        const showLevel = extensionSettings.trackerConfig?.userStats?.showLevel !== false;
-        const levelStr = showLevel ? `, LVL ${extensionSettings.level}` : '';
-        userStatsInfo += `STR ${stats.str}, DEX ${stats.dex}, CON ${stats.con}, INT ${stats.int}, WIS ${stats.wis}, CHA ${stats.cha}${levelStr}\n\n`;
+        const attributesString = buildAttributesString();
+        if (attributesString) {
+            userStatsInfo += `${userName}'s Attributes: ${attributesString}\n\n`;
+        }
     }
 
     // Add present characters info for party members
@@ -425,19 +425,10 @@ export async function buildCombatActionPrompt(action, combatStats) {
 
         // Add ONLY classic stats/attributes if enabled
         if (extensionSettings.classicStats) {
-            const stats = extensionSettings.classicStats;
-            const config = extensionSettings.trackerConfig?.userStats;
-            const rpgAttributes = (config?.rpgAttributes && config.rpgAttributes.length > 0) ? config.rpgAttributes : [
-                { id: 'str', name: 'STR', enabled: true },
-                { id: 'dex', name: 'DEX', enabled: true },
-                { id: 'con', name: 'CON', enabled: true },
-                { id: 'int', name: 'INT', enabled: true },
-                { id: 'wis', name: 'WIS', enabled: true },
-                { id: 'cha', name: 'CHA', enabled: true }
-            ];
-            const enabledAttributes = rpgAttributes.filter(attr => attr && attr.enabled && attr.name && attr.id);
-            const attributeStrings = enabledAttributes.map(attr => `${attr.name} ${stats[attr.id] || 10}`);
-            systemMessage += `\nAttributes: ${attributeStrings.join(', ')}, LVL ${extensionSettings.level}\n`;
+            const attributesString = buildAttributesString();
+            if (attributesString) {
+                systemMessage += `\nAttributes: ${attributesString}\n`;
+            }
         }
 
         systemMessage += `</persona>\n\n`;
