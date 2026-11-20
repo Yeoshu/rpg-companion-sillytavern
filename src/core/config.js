@@ -90,8 +90,8 @@ export const defaultSettings = {
     },
     lastDiceRoll: null, // Legacy: rolls now live on chat messages (mechanics/rollState.js)
     skillLevels: {}, // Per-chat skill levels, keyed by lowercase skill name
-    autoRoll: false, // Ask the AI whether the user's message needs a dice check
-    showAutoRollToggle: true, // Show the Auto-Roll toggle in the main panel
-    customAutoRollPrompt: '', // Custom auto-roll check prompt (empty = use default)
+    showAttemptButton: true, // Show the Attempt (roll for it) button above the chat input
+    attemptSuggest: true, // Ask the AI which attribute/skill/difficulty fits when Attempt is clicked
+    customAttemptPrompt: '', // Custom attempt check prompt (empty = use default)
     collapsedInventoryLocations: [] // Array of collapsed storage location names
 };

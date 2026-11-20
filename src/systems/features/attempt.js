@@ -1,21 +1,21 @@
 /**
- * Auto-Roll
+ * Attempt Roll
  *
- * Before the AI replies to a user message, asks the model (with an editable
- * prompt) whether the action in that message needs a dice check and which
- * attribute/skill applies. If it does, the user is asked whether to roll, and
- * can adjust the attribute, skill and difficulty first. Declining lets the
- * chat continue normally; accepting resolves the check with the core rules
- * and attaches the result to the message, which puts it in the AI's context.
+ * The "Attempt" button above the chat input sends the typed message as an
+ * action that needs a dice check. On click, the model is asked once (with an
+ * editable prompt) which attribute, skill and difficulty fit the action; the
+ * user can adjust those in a dialog and roll. The result is queued, the message
+ * is sent, and the roll attaches to it, which puts it in the AI's context for
+ * that reply. Cancelling leaves the typed text untouched.
  *
- * Runs from the extension's generate interceptor (see index.js), which
- * SillyTavern awaits after the user's message is added to the chat and before
- * the prompt is assembled.
+ * Nothing runs on ordinary messages: the check prompt is only sent when the
+ * button is clicked, and can be switched off in settings.
  */
 
-import { chat, substituteParams, saveChatDebounced } from '../../../../../../../script.js';
+import { chat, substituteParams } from '../../../../../../../script.js';
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../../popup.js';
 import { extensionSettings } from '../../core/state.js';
+import { saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
 import { generateWithExternalAPI } from '../generation/apiClient.js';
 import { safeGenerateRaw } from '../../utils/responseExtractor.js';
@@ -25,17 +25,13 @@ import {
     formatTarget, formatModifier, UNTRAINED_PENALTY
 } from '../mechanics/rules.js';
 import { getAttributes, findAttribute, getSkills, findSkill } from '../mechanics/character.js';
-import { attachRoll, getRollForMessage, latestUserMessageIndex, summarizeRoll } from '../mechanics/rollState.js';
+import { queueRoll, summarizeRoll } from '../mechanics/rollState.js';
 
-/** Marks a message as already evaluated, so regenerations/swipes don't ask again. */
-const CHECKED_FIELD = 'rpg_auto_roll_checked';
 /** Messages of story context given to the referee. */
 const CONTEXT_MESSAGES = 4;
 const CONTEXT_CHARS_PER_MESSAGE = 600;
 
-export const DEFAULT_AUTO_ROLL_PROMPT = `You are the rules referee for a tabletop-style roleplay. Decide whether {{user}}'s latest message describes an action that needs a dice check.
-
-Call for a check only when the outcome is genuinely uncertain AND failure would be interesting: risky, contested, or difficult actions such as sneaking past a guard, picking a lock, climbing a slick wall, persuading someone who is reluctant, or dodging a falling rock. Do NOT call for a check for ordinary actions, casual conversation, things {{user}} would obviously succeed or fail at, or anything another character is doing.
+export const DEFAULT_ATTEMPT_PROMPT = `You are the rules referee for a tabletop-style roleplay. {{user}} is attempting the action below and will roll for it. Choose the check.
 
 {{user}}'s attributes: {{attributes}}
 {{user}}'s skills: {{skills}}
@@ -44,14 +40,13 @@ Difficulty levels: easy, average, hard, veryHard, extreme
 Recent story:
 {{context}}
 
-{{user}}'s latest message:
-{{lastMessage}}
+{{user}}'s attempt:
+{{action}}
 
-Choose the single most relevant attribute. If one of {{user}}'s skills applies, name it. If the action clearly needs a trained skill that {{user}} does not have, name that skill anyway (it will be rolled untrained). Otherwise use null.
+Choose the single most relevant attribute. If one of {{user}}'s skills applies, name it. If the action clearly needs a trained skill that {{user}} does not have, name that skill anyway (it will be rolled untrained). Otherwise use null. Judge the difficulty from the situation in the story.
 
 Respond with ONLY a JSON object and nothing else:
-{"roll": true, "attribute": "<attribute from the list>", "skill": "<skill name or null>", "difficulty": "<difficulty level>", "reason": "<what {{user}} is attempting, in a few words>"}
-If no check is needed, respond: {"roll": false}`;
+{"attribute": "<attribute from the list>", "skill": "<skill name or null>", "difficulty": "<difficulty level>", "reason": "<what {{user}} is attempting, in a few words>"}`;
 
 function t(key, fallback) {
     return i18n.getTranslation(key) || fallback;
@@ -61,52 +56,72 @@ function escapeHtml(text) {
     return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 }
 
-export function isAutoRollActive() {
-    return !!(extensionSettings.enabled && extensionSettings.autoRoll && (extensionSettings.showAutoRollToggle ?? true));
+let busy = false;
+
+function setButtonBusy(isBusy) {
+    $('#rpg-attempt-button')
+        .prop('disabled', isBusy)
+        .toggleClass('rpg-busy', isBusy)
+        .find('i').toggleClass('fa-dice-d20', !isBusy).toggleClass('fa-spinner fa-spin', isBusy);
+}
+
+/** Whether SillyTavern is currently generating (the send button is swapped for stop). */
+function isGenerating() {
+    return $('#mes_stop').is(':visible');
 }
 
 /**
- * Generation types that respond to a freshly sent user message.
- * Regenerate/swipe/continue reuse whatever was decided for that message.
+ * Click handler for the Attempt button.
  */
-function isNewReply(type) {
-    return !type || type === 'normal';
-}
+export async function startAttempt() {
+    if (!extensionSettings.enabled || busy) return;
 
-/**
- * Entry point from the generate interceptor.
- * @param {string} type - SillyTavern generation type
- */
-export async function maybeAutoRoll(type) {
-    if (!isAutoRollActive() || !isNewReply(type)) return;
-
-    const index = latestUserMessageIndex();
-    const message = chat[index];
-    // Only the message the AI is about to answer, and only once.
-    if (!message || index !== chat.length - 1) return;
-    if (message.extra?.[CHECKED_FIELD] || getRollForMessage(index)) return;
-
-    message.extra = message.extra || {};
-    message.extra[CHECKED_FIELD] = true;
-    saveChatDebounced();
-
-    let decision;
-    try {
-        decision = await requestDecision(index);
-    } catch (error) {
-        console.error('[RPG Companion] Auto-roll check failed:', error);
-        toastr.warning(t('autoRoll.checkFailed', 'Auto-roll check failed; continuing without a roll.'));
+    const $input = $('#send_textarea');
+    const action = String($input.val() || '').trim();
+    if (!action) {
+        toastr.info(t('attempt.typeFirst', 'Type what you attempt first, then click Attempt.'));
+        $input.trigger('focus');
         return;
     }
-    if (!decision) return;
+    if (isGenerating()) {
+        toastr.info(t('attempt.wait', 'Wait for the current reply to finish.'));
+        return;
+    }
+    const attributes = getAttributes();
+    if (!attributes.length) {
+        toastr.warning(t('attempt.noAttributes', 'Add attributes to your character to make checks.'));
+        return;
+    }
 
-    const choice = await askToRoll(decision);
-    if (!choice) return; // declined: the reply is generated as normal
+    busy = true;
+    try {
+        let suggestion = { attributeId: attributes[0].id, skillName: null, difficulty: 'average', reason: '' };
+        if (extensionSettings.attemptSuggest !== false) {
+            setButtonBusy(true);
+            try {
+                suggestion = (await requestSuggestion(action)) || suggestion;
+            } catch (error) {
+                console.error('[RPG Companion] Attempt suggestion failed:', error);
+                toastr.warning(t('attempt.suggestFailed', 'Could not get a suggested check; pick one yourself.'));
+            } finally {
+                setButtonBusy(false);
+            }
+        }
 
-    const roll = performCheck({ ...choice, reason: decision.reason });
-    attachRoll(index, roll);
-    showRollResult(roll);
-    $(document).trigger('rpg:diceRollChanged');
+        const choice = await askToRoll(suggestion);
+        if (!choice) return; // cancelled: the typed text stays in the box
+
+        const roll = performCheck({ ...choice, reason: suggestion.reason });
+        queueRoll(roll);
+        saveChatData();
+        showRollResult(roll);
+        $(document).trigger('rpg:diceRollChanged');
+
+        // Send the message; the queued roll attaches to it on MESSAGE_SENT.
+        $('#send_but').trigger('click');
+    } finally {
+        busy = false;
+    }
 }
 
 /* ---------------------------------------------------------------------------
@@ -121,9 +136,9 @@ function describeSkills(skills) {
     return skills.map(skill => `${skill.name} ${formatModifier(skill.level)}`).join(', ') || 'none';
 }
 
-function buildContext(index) {
+function buildContext() {
     const lines = [];
-    for (let i = index - 1; i >= 0 && lines.length < CONTEXT_MESSAGES; i--) {
+    for (let i = chat.length - 1; i >= 0 && lines.length < CONTEXT_MESSAGES; i--) {
         const msg = chat[i];
         if (!msg || msg.is_system || !msg.mes) continue;
         const text = msg.mes.length > CONTEXT_CHARS_PER_MESSAGE ? `…${msg.mes.slice(-CONTEXT_CHARS_PER_MESSAGE)}` : msg.mes;
@@ -132,21 +147,21 @@ function buildContext(index) {
     return lines.join('\n\n') || '(start of story)';
 }
 
-/** The filled-in check prompt for the user message at `index`. */
-export function buildCheckPrompt(index) {
-    const template = extensionSettings.customAutoRollPrompt || DEFAULT_AUTO_ROLL_PROMPT;
+/** The filled-in check prompt for the typed action. */
+export function buildCheckPrompt(action) {
+    const template = extensionSettings.customAttemptPrompt || DEFAULT_ATTEMPT_PROMPT;
     const filled = template
         .replaceAll('{{attributes}}', describeAttributes(getAttributes()))
         .replaceAll('{{skills}}', describeSkills(getSkills()))
-        .replaceAll('{{context}}', buildContext(index))
-        .replaceAll('{{lastMessage}}', chat[index]?.mes || '');
+        .replaceAll('{{context}}', buildContext())
+        .replaceAll('{{action}}', action)
+        .replaceAll('{{lastMessage}}', action);
     return substituteParams(filled);
 }
 
-async function requestDecision(index) {
-    const prompt = buildCheckPrompt(index);
+async function requestSuggestion(action) {
     const messages = [
-        { role: 'system', content: prompt },
+        { role: 'system', content: buildCheckPrompt(action) },
         { role: 'user', content: 'Respond with the JSON object only.' }
     ];
 
@@ -154,20 +169,20 @@ async function requestDecision(index) {
         ? await generateWithExternalAPI(messages)
         : await safeGenerateRaw({ prompt: messages, quietToLoud: false });
 
-    return parseDecision(response);
+    return parseSuggestion(response);
 }
 
 /**
- * Turns the model's reply into a check request, or null if no roll is needed.
+ * Turns the model's reply into a suggested check, or null if it can't be read.
  * Unknown attributes/difficulties fall back to sensible defaults; the user can
- * still change them in the confirmation dialog.
+ * still change them in the dialog.
  */
-export function parseDecision(text) {
+export function parseSuggestion(text) {
     if (!text) return null;
     const jsonText = extractJSONFromText(String(text)) || String(text);
     const match = jsonText.match(/\{[\s\S]*\}/);
     const data = repairJSON(match ? match[0] : jsonText);
-    if (!data || data.roll !== true) return null;
+    if (!data || typeof data !== 'object') return null;
 
     const attributes = getAttributes();
     if (!attributes.length) return null;
@@ -211,30 +226,30 @@ function interpretChoice({ attributeId, skillValue, difficulty }) {
     return { attribute, skill, difficulty: normalizeDifficulty(difficulty), target };
 }
 
-function buildDialog(decision) {
+function buildDialog(suggestion) {
     const attributes = getAttributes();
     const skills = getSkills();
-    const suggested = decision.skillName ? findSkill(decision.skillName) : null;
+    const suggested = suggestion.skillName ? findSkill(suggestion.skillName) : null;
 
-    const attributeOptions = attributes.map(attr => `<option value="${escapeHtml(attr.id)}" ${attr.id === decision.attributeId ? 'selected' : ''}>${escapeHtml(attr.name)} ${attr.value} (${formatTarget(attr.roll)})</option>`).join('');
+    const attributeOptions = attributes.map(attr => `<option value="${escapeHtml(attr.id)}" ${attr.id === suggestion.attributeId ? 'selected' : ''}>${escapeHtml(attr.name)} ${attr.value} (${formatTarget(attr.roll)})</option>`).join('');
 
-    let skillOptions = `<option value="">${escapeHtml(t('autoRoll.noSkill', 'None'))}</option>`;
+    let skillOptions = `<option value="">${escapeHtml(t('attempt.noSkill', 'None'))}</option>`;
     skillOptions += skills.map(skill => `<option value="skill:${escapeHtml(skill.key)}" ${suggested?.key === skill.key ? 'selected' : ''}>${escapeHtml(skill.name)} ${formatModifier(skill.level)}</option>`).join('');
     // A skill the model asked for that the character doesn't have: offer it untrained (only when skills are in use).
-    if (decision.skillName && !suggested && skills.length) {
-        skillOptions += `<option value="untrained:${escapeHtml(decision.skillName)}" selected>${escapeHtml(decision.skillName)} (${escapeHtml(t('autoRoll.untrained', 'untrained'))} ${formatModifier(UNTRAINED_PENALTY)})</option>`;
+    if (suggestion.skillName && !suggested && skills.length) {
+        skillOptions += `<option value="untrained:${escapeHtml(suggestion.skillName)}" selected>${escapeHtml(suggestion.skillName)} (${escapeHtml(t('attempt.untrained', 'untrained'))} ${formatModifier(UNTRAINED_PENALTY)})</option>`;
     }
 
-    const difficultyOptions = Object.entries(DIFFICULTIES).map(([id, d]) => `<option value="${id}" ${id === decision.difficulty ? 'selected' : ''}>${escapeHtml(t(`autoRoll.difficulty.${id}`, d.label))} (${formatModifier(d.modifier)})</option>`).join('');
+    const difficultyOptions = Object.entries(DIFFICULTIES).map(([id, d]) => `<option value="${id}" ${id === suggestion.difficulty ? 'selected' : ''}>${escapeHtml(t(`attempt.difficulty.${id}`, d.label))} (${formatModifier(d.modifier)})</option>`).join('');
 
     const $dialog = $(`
         <div class="rpg-roll-prompt">
-            <h3><i class="fa-solid fa-dice-d20"></i> ${escapeHtml(t('autoRoll.dialogTitle', 'Roll for it?'))}</h3>
-            ${decision.reason ? `<p class="rpg-roll-reason">${escapeHtml(decision.reason)}</p>` : ''}
+            <h3><i class="fa-solid fa-dice-d20"></i> ${escapeHtml(t('attempt.dialogTitle', 'Attempt'))}</h3>
+            ${suggestion.reason ? `<p class="rpg-roll-reason">${escapeHtml(suggestion.reason)}</p>` : ''}
             <div class="rpg-roll-fields">
-                <label><span>${escapeHtml(t('autoRoll.attribute', 'Attribute'))}</span><select class="text_pole" data-roll="attribute">${attributeOptions}</select></label>
-                ${skills.length ? `<label><span>${escapeHtml(t('autoRoll.skill', 'Skill'))}</span><select class="text_pole" data-roll="skill">${skillOptions}</select></label>` : ''}
-                <label><span>${escapeHtml(t('autoRoll.difficulty', 'Difficulty'))}</span><select class="text_pole" data-roll="difficulty">${difficultyOptions}</select></label>
+                <label><span>${escapeHtml(t('attempt.attribute', 'Attribute'))}</span><select class="text_pole" data-roll="attribute">${attributeOptions}</select></label>
+                ${skills.length ? `<label><span>${escapeHtml(t('attempt.skill', 'Skill'))}</span><select class="text_pole" data-roll="skill">${skillOptions}</select></label>` : ''}
+                <label><span>${escapeHtml(t('attempt.difficulty', 'Difficulty'))}</span><select class="text_pole" data-roll="difficulty">${difficultyOptions}</select></label>
             </div>
             <div class="rpg-roll-target"></div>
         </div>
@@ -253,7 +268,7 @@ function buildDialog(decision) {
         if (skill) parts.push(`${escapeHtml(skill.name)} ${formatModifier(target.skill)}`);
         if (target.difficulty) parts.push(`${escapeHtml(DIFFICULTIES[difficulty].label)} ${formatModifier(target.difficulty)}`);
         $dialog.find('.rpg-roll-target').html(
-            `<div>${escapeHtml(t('autoRoll.rollUnder', 'Roll 3d6 under or equal to'))} <strong>${target.target}</strong> <span class="rpg-roll-chance">(${chance}%)</span></div>`
+            `<div>${escapeHtml(t('attempt.rollUnder', 'Roll 3d6 under or equal to'))} <strong>${target.target}</strong> <span class="rpg-roll-chance">(${chance}%)</span></div>`
             + `<small>${parts.join(' · ')}</small>`
         );
     };
@@ -267,11 +282,11 @@ function buildDialog(decision) {
  * Shows the confirmation dialog.
  * @returns {Promise<object|null>} the (possibly adjusted) choice, or null if declined
  */
-async function askToRoll(decision) {
-    const { $dialog, readChoice } = buildDialog(decision);
+async function askToRoll(suggestion) {
+    const { $dialog, readChoice } = buildDialog(suggestion);
     const result = await callGenericPopup($dialog, POPUP_TYPE.CONFIRM, '', {
-        okButton: t('autoRoll.roll', 'Roll'),
-        cancelButton: t('autoRoll.skip', "Don't roll")
+        okButton: t('attempt.roll', 'Roll and send'),
+        cancelButton: t('attempt.cancel', 'Cancel')
     });
     return result === POPUP_RESULT.AFFIRMATIVE ? readChoice() : null;
 }
@@ -302,7 +317,7 @@ export function performCheck(choice, dice) {
 }
 
 function showRollResult(roll) {
-    const title = roll.success ? t('autoRoll.success', 'Success') : t('autoRoll.failure', 'Failure');
+    const title = roll.success ? t('attempt.success', 'Success') : t('attempt.failure', 'Failure');
     const detail = `${summarizeRoll(roll)} (${roll.dice.join(' + ')})`;
     (roll.success ? toastr.success : toastr.error)(detail, `🎲 ${title}`, { timeOut: 6000 });
 }

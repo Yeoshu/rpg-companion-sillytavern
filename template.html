@@ -124,10 +124,6 @@
                     <input type="checkbox" id="rpg-toggle-narrator">
                     <i class="fa-solid fa-book-open"></i>
                 </label>
-                <label class="rpg-feature-toggle" id="rpg-auto-roll-toggle-wrapper" title="Auto-Roll: ask whether your actions need a dice check" data-i18n-title="template.mainPanel.autoRoll">
-                    <input type="checkbox" id="rpg-toggle-auto-roll">
-                    <i class="fa-solid fa-dice-d20"></i>
-                </label>
                 <label class="rpg-feature-toggle" id="rpg-auto-avatars-toggle-wrapper" title="Auto-generate Avatars" data-i18n-title="template.mainPanel.autoAvatars">
                     <input type="checkbox" id="rpg-toggle-auto-avatars-panel">
                     <i class="fa-solid fa-user-plus"></i>
@@ -458,14 +454,6 @@
                     Display a toggle button to enable/disable narrator mode (infer characters from context).
                 </small>
 
-                <label class="checkbox_label">
-                    <input type="checkbox" id="rpg-toggle-show-auto-roll" />
-                    <span data-i18n-key="template.settingsModal.display.showAutoRoll">Show Auto-Roll</span>
-                </label>
-                <small class="rpg-note rpg-note-indented"
-                    data-i18n-key="template.settingsModal.display.showAutoRollNote">
-                    Display a toggle for Auto-Roll: before each reply, the AI checks whether your action needs a dice check and which attribute or skill applies, then asks you whether to roll.
-                </small>
 
                 <label class="checkbox_label">
                     <input type="checkbox" id="rpg-toggle-show-auto-avatars" />
@@ -492,6 +480,24 @@
                 <small class="rpg-note rpg-note-indented"
                     data-i18n-key="template.settingsModal.display.showNaturalPlotNote">
                     Display button for context-aware narrative continuation prompts.
+                </small>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-attempt-button" />
+                    <span data-i18n-key="template.settingsModal.display.showAttempt">Show Attempt</span>
+                </label>
+                <small class="rpg-note rpg-note-indented"
+                    data-i18n-key="template.settingsModal.display.showAttemptNote">
+                    Display a button that sends your typed message as an attempt that needs a dice check. You choose the attribute, skill and difficulty, roll, and the result goes into the AI's context for its reply.
+                </small>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-attempt-suggest" />
+                    <span data-i18n-key="template.settingsModal.display.attemptSuggest">Suggest the check with AI</span>
+                </label>
+                <small class="rpg-note rpg-note-indented"
+                    data-i18n-key="template.settingsModal.display.attemptSuggestNote">
+                    When you click Attempt, ask the AI which attribute, skill and difficulty fit before showing the roll dialog (one short request, only on click). Turn off to pick them yourself.
                 </small>
 
                 <label class="checkbox_label">
@@ -1080,16 +1086,16 @@
                 </button>
             </div>
 
-            <!-- Auto-Roll Check Prompt -->
+            <!-- Attempt Check Prompt -->
             <div class="rpg-prompt-editor-section">
-                <label for="rpg-prompt-auto-roll" class="rpg-field-label">
-                    <i class="fa-solid fa-dice-d20"></i> <span data-i18n-key="template.promptsEditor.autoRollPrompt.title">Auto-Roll Check Prompt</span>
+                <label for="rpg-prompt-attempt" class="rpg-field-label">
+                    <i class="fa-solid fa-dice-d20"></i> <span data-i18n-key="template.promptsEditor.attemptPrompt.title">Attempt Check Prompt</span>
                 </label>
-                <small class="rpg-note" data-i18n-key="template.promptsEditor.autoRollPrompt.note">
-                    Sent before each reply when Auto-Roll is on, to decide whether your last message needs a dice check. Placeholders: {{user}}, {{char}}, {{attributes}}, {{skills}}, {{context}}, {{lastMessage}}. It must ask for the JSON answer shown in the default.
+                <small class="rpg-note" data-i18n-key="template.promptsEditor.attemptPrompt.note">
+                    Sent when you click Attempt (if "Suggest the check with AI" is on), to pick the attribute, skill and difficulty for your typed action. Placeholders: {{user}}, {{char}}, {{attributes}}, {{skills}}, {{context}}, {{action}}. It must ask for the JSON answer shown in the default.
                 </small>
-                <textarea id="rpg-prompt-auto-roll" class="rpg-prompt-textarea" rows="8"></textarea>
-                <button class="menu_button rpg-restore-prompt-btn" data-prompt="autoRoll" style="margin-top: 8px;">
+                <textarea id="rpg-prompt-attempt" class="rpg-prompt-textarea" rows="8"></textarea>
+                <button class="menu_button rpg-restore-prompt-btn" data-prompt="attempt" style="margin-top: 8px;">
                     <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.promptsEditor.restoreDefault">Restore Default</span>
                 </button>
             </div>

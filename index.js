@@ -148,7 +148,6 @@ import { setupClassicStatsButtons } from './src/systems/features/classicStats.js
 import { ensureHtmlCleaningRegex, detectConflictingRegexScripts, ensureTrackerCleaningRegex } from './src/systems/features/htmlCleaning.js';
 import { ensureJsonCleaningRegex, removeJsonCleaningRegex } from './src/systems/features/jsonCleaning.js';
 import { parseAndStoreSpotifyUrl } from './src/systems/features/musicPlayer.js';
-import { maybeAutoRoll } from './src/systems/features/autoRoll.js';
 import { attachQueuedRollTo, updateDiceInjection } from './src/systems/mechanics/rollState.js';
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
 import { openEncounterModal } from './src/systems/ui/encounterUI.js';
@@ -439,11 +438,6 @@ async function initUI() {
         saveSettings();
     });
 
-    $('#rpg-toggle-auto-roll').on('change', function() {
-        extensionSettings.autoRoll = $(this).prop('checked');
-        saveSettings();
-    });
-
     $('#rpg-skip-guided-mode').on('change', function() {
         extensionSettings.skipInjectionsForGuided = String($(this).val());
         saveSettings();
@@ -464,6 +458,17 @@ async function initUI() {
         extensionSettings.enableNaturalPlot = $(this).prop('checked');
         saveSettings();
         togglePlotButtons();
+    });
+
+    $('#rpg-toggle-attempt-button').on('change', function() {
+        extensionSettings.showAttemptButton = $(this).prop('checked');
+        saveSettings();
+        togglePlotButtons();
+    });
+
+    $('#rpg-toggle-attempt-suggest').on('change', function() {
+        extensionSettings.attemptSuggest = $(this).prop('checked');
+        saveSettings();
     });
 
     $('#rpg-toggle-encounters').on('change', function() {
@@ -625,17 +630,6 @@ async function initUI() {
         if (!extensionSettings.showNarratorMode) {
             extensionSettings.narratorMode = false;
             $('#rpg-toggle-narrator').prop('checked', false);
-        }
-        saveSettings();
-        updateFeatureTogglesVisibility();
-    });
-
-    $('#rpg-toggle-show-auto-roll').on('change', function() {
-        extensionSettings.showAutoRollToggle = $(this).prop('checked');
-        // Hiding the toggle also turns the feature off, like the other feature toggles
-        if (!extensionSettings.showAutoRollToggle) {
-            extensionSettings.autoRoll = false;
-            $('#rpg-toggle-auto-roll').prop('checked', false);
         }
         saveSettings();
         updateFeatureTogglesVisibility();
@@ -1076,7 +1070,6 @@ async function initUI() {
     $('#rpg-toggle-spotify-music').prop('checked', extensionSettings.enableSpotifyMusic);
 
     $('#rpg-toggle-narrator').prop('checked', extensionSettings.narratorMode);
-    $('#rpg-toggle-auto-roll').prop('checked', extensionSettings.autoRoll === true);
 
     // Feature toggle visibility settings
     $('#rpg-toggle-show-html-toggle').prop('checked', extensionSettings.showHtmlToggle ?? true);
@@ -1086,11 +1079,12 @@ async function initUI() {
     $('#rpg-toggle-show-cyoa-toggle').prop('checked', extensionSettings.showCYOAToggle ?? true);
     $('#rpg-toggle-show-spotify-toggle').prop('checked', extensionSettings.showSpotifyToggle ?? true);
     $('#rpg-toggle-show-narrator-mode').prop('checked', extensionSettings.showNarratorMode ?? true);
-    $('#rpg-toggle-show-auto-roll').prop('checked', extensionSettings.showAutoRollToggle ?? true);
     $('#rpg-toggle-show-auto-avatars').prop('checked', extensionSettings.showAutoAvatars ?? true);
 
     $('#rpg-toggle-randomized-plot').prop('checked', extensionSettings.enableRandomizedPlot ?? true);
     $('#rpg-toggle-natural-plot').prop('checked', extensionSettings.enableNaturalPlot ?? true);
+    $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
+    $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);
     $('#rpg-encounter-history-depth').val(extensionSettings.encounterSettings?.historyDepth ?? 8);
     $('#rpg-toggle-autosave-logs').prop('checked', extensionSettings.encounterSettings?.autoSaveLogs ?? true);
@@ -1231,7 +1225,7 @@ async function initUI() {
 /**
  * SillyTavern awaits this before building each prompt (manifest "generate_interceptor"),
  * after the user's message has been added to the chat.
- * Runs the auto-roll check, then sets the dice prompt for this generation.
+ * Sets the dice prompt (the roll attached to the message being answered) for this generation.
  */
 globalThis.rpgCompanionGenerateInterceptor = async function (_chat, _contextSize, _abort, type) {
     try {
@@ -1240,7 +1234,6 @@ globalThis.rpgCompanionGenerateInterceptor = async function (_chat, _contextSize
             updateDiceInjection(false);
             return;
         }
-        await maybeAutoRoll(type);
         updateDiceInjection(true);
         updateDiceDisplay();
     } catch (error) {

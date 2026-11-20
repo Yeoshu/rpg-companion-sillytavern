@@ -8,6 +8,7 @@ import { extensionSettings, setIsPlotProgression } from '../../core/state.js';
 import { DEFAULT_HTML_PROMPT, DEFAULT_DIALOGUE_COLORING_PROMPT, DEFAULT_DECEPTION_PROMPT, DEFAULT_CYOA_PROMPT } from '../generation/promptBuilder.js';
 import { Generate } from '../../../../../../../script.js';
 import { i18n } from '../../core/i18n.js';
+import { startAttempt } from './attempt.js';
 
 /**
  * Sets up the plot progression buttons inside the send form area.
@@ -26,6 +27,9 @@ export function setupPlotButtons(handlePlotClick, handleEncounterClick) {
     // Create the button container
     const buttonHtml = `
         <span id="rpg-plot-buttons" style="display: none;">
+            <button id="rpg-attempt-button" class="menu_button interactable rpg-plot-btn" tabindex="0" role="button" title="${i18n.getTranslation('plotProgression.tooltips.attempt') || 'Send your message as an attempt that needs a dice roll'}">
+                <i class="fa-solid fa-dice-d20"></i>&nbsp;<span class="rpg-btn-text">${i18n.getTranslation('plotProgression.buttons.attempt') || 'Attempt'}</span>
+            </button>
             <button id="rpg-plot-random" class="menu_button interactable rpg-plot-btn" tabindex="0" role="button" title="${i18n.getTranslation('plotProgression.tooltips.randomizedPlot') || 'Generate a random plot twist or event'}">
                 <i class="fa-solid fa-dice"></i>&nbsp;<span class="rpg-btn-text">${i18n.getTranslation('plotProgression.buttons.randomizedPlot') || 'Randomized Plot'}</span>
             </button>
@@ -45,6 +49,7 @@ export function setupPlotButtons(handlePlotClick, handleEncounterClick) {
     $('#rpg-plot-random').on('click', () => handlePlotClick('random'));
     $('#rpg-plot-natural').on('click', () => handlePlotClick('natural'));
     $('#rpg-encounter-button').on('click', () => handleEncounterClick());
+    $('#rpg-attempt-button').on('click', () => startAttempt());
 
     // Show/hide based on setting
     togglePlotButtons();

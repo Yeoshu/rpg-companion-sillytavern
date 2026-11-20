@@ -71,22 +71,29 @@ Example: DEX 14 (12-), Stealth +2, Hard −2 → roll 12 or less (74%).
 - A roll belongs to **one user message** and is stored on it. It applies to the
   AI's reply to that message (including swipes and regenerations) and stops
   applying when you send your next message. Rolls never cross chats.
-- A roll made with the manual roller before you type is queued and attaches to
-  the next message you send.
+- A roll made with the manual roller before you send is queued and attaches to
+  the next message you send (the Attempt button uses the same mechanism).
 - The roll reaches the AI through its own injected prompt, only for the main
   reply. Tracker updates, encounter prompts and quiet generations never see it.
 
-## Auto-Roll
+## Attempt
 
-When the Auto-Roll toggle (d20 icon in the panel footer) is on, every message
-you send is first checked by the model with the editable **Auto-Roll Check
-Prompt** (Prompts editor). It answers whether a check is needed and, if so,
-which attribute, skill and difficulty apply. You then get a dialog where you
-can adjust those and either roll or skip. Skipping continues the chat as
-normal. Each message is only checked once.
+The **Attempt** button (d20, above the chat input next to the plot buttons)
+sends what you typed as an action that needs a roll:
 
-The check uses the same model as tracker generation (SillyTavern's current API,
-or the external API in External mode).
+1. Type the action ("I try to pick the lock before the guard comes back").
+2. Click **Attempt**. The model is asked once which attribute, skill and
+   difficulty fit, using the editable **Attempt Check Prompt** (Prompts editor).
+   Turn off "Suggest the check with AI" in settings to skip this and pick them
+   yourself.
+3. A dialog shows the check with its target and odds. Adjust it if you like and
+   click **Roll and send**: the dice are rolled, the message is sent, and the
+   result is attached to it. **Cancel** leaves your text in the box.
+
+Ordinary messages never trigger anything; rolling is always your call.
+
+The suggestion uses the same model as tracker generation (SillyTavern's current
+API, or the external API in External mode).
 
 ## Not built yet
 
