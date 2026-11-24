@@ -25,6 +25,7 @@ import { updateFabWidgets } from '../ui/mobile.js';
 import { getStatBarColors } from '../ui/theme.js';
 import { attributeRoll, formatTarget, formatModifier } from '../mechanics/rules.js';
 import { getSkills } from '../mechanics/character.js';
+import { getProgressState, setExp, openSpendPointsDialog } from '../features/experience.js';
 
 function escapeAttr(text) {
     return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -198,6 +199,26 @@ function updateUserStatsData() {
     committedTrackerData.userStats = statsText;
 }
 
+
+/**
+ * EXP bar under the name/level row, plus a button to spend unspent character points.
+ */
+function renderExpRow() {
+    const { exp, next, points } = getProgressState();
+    const percent = Math.min(100, Math.round((exp / next) * 100));
+    const expLabel = i18n.getTranslation('progression.exp') || 'EXP';
+    const pointsTitle = i18n.getTranslation('progression.spendTitle') || 'Spend character points';
+    return `
+        <div class="rpg-exp-row">
+            <div class="rpg-exp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${next}" aria-valuenow="${exp}">
+                <div class="rpg-exp-fill" style="width: ${percent}%"></div>
+            </div>
+            <span class="rpg-exp-text"><span class="rpg-exp-value rpg-editable" contenteditable="true" title="${i18n.getTranslation('progression.editExp') || 'Click to edit EXP'}">${exp}</span>/${next} ${expLabel}</span>
+            ${points > 0 ? `<button type="button" class="rpg-cp-badge" title="${pointsTitle}"><i class="fa-solid fa-arrow-up-right-dots"></i> ${points} ${i18n.getTranslation('progression.cp') || 'CP'}</button>` : ''}
+        </div>
+    `;
+}
+
 /**
  * Renders the user stats panel with health bars, mood, inventory, and classic stats.
  * Includes event listeners for editable fields.
@@ -297,6 +318,7 @@ export function renderUserStats() {
             <span class="rpg-level-value rpg-editable" contenteditable="true" data-field="level" title="${i18n.getTranslation('userStats.clickToEditLevel') || 'Click to edit level'}">${extensionSettings.level}</span>` : ''}
         </div>
     `;
+    if (showLevel) html += renderExpRow();
 
     // Dynamic stats grid - only show enabled stats
     const showLockIcons = extensionSettings.showLockIcons ?? true;
@@ -583,14 +605,29 @@ export function renderUserStats() {
         renderUserStats();
     });
 
-    // Add event listener for level editing
+    // EXP: type a value; reaching the bar levels up.
+    $('.rpg-exp-value.rpg-editable').on('blur', function () {
+        const value = parseInt($(this).text().trim(), 10);
+        if (Number.isFinite(value) && value !== getProgressState().exp) {
+            setExp(value);
+        } else {
+            renderUserStats();
+        }
+    }).on('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            $(this).blur();
+        }
+    });
+
+    $('.rpg-cp-badge').on('click', () => openSpendPointsDialog());
+
+    // Add event listener for level editing (no upper limit)
     $('.rpg-level-value.rpg-editable').on('blur', function () {
         let value = parseInt($(this).text().trim());
         if (isNaN(value) || value < 1) {
             value = 1;
         }
-        // Set reasonable max level
-        value = Math.min(100, value);
 
         extensionSettings.level = value;
         saveSettings();

@@ -6,8 +6,10 @@ characteristics, one consistent 3d6 roll for everything, and the higher a number
 gets, the more it adds.
 
 Code: `src/systems/mechanics/rules.js` (pure rules, unit-tested in `tests/`),
+`progression.js` (EXP and character points, pure and unit-tested),
 `character.js` (reads the character sheet), `rollState.js` (where rolls are
-stored and how they reach the prompt).
+stored and how they reach the prompt). `src/systems/features/experience.js`
+connects progression to the panel, quests and encounters.
 
 ## The roll
 
@@ -95,12 +97,62 @@ Ordinary messages never trigger anything; rolling is always your call.
 The suggestion uses the same model as tracker generation (SillyTavern's current
 API, or the external API in External mode).
 
+## Progression
+
+Level, EXP and unspent character points (CP) are saved per chat. The level and
+EXP can be typed directly on the sheet; reaching the bar levels you up.
+
+    EXP bar = 100 × current level
+
+Every reward is a **percentage of the current bar**, so levelling keeps the same
+pace at every level:
+
+| Source | Reward (default) | About this many per level |
+|---|---|---|
+| Main quest completed | 20–30% (rolled) | 4 |
+| Side quest completed | 5–10% (rolled) | 10–20 |
+| Enemy of your level defeated | 5% | 20 |
+
+Quests give EXP when you click their ✓ (Complete). ✗ removes a quest without
+EXP. Nothing is awarded when the tracker AI drops a quest by itself.
+
+### Enemies
+
+The encounter set-up prompt asks the model to give each enemy a level on the
+player's scale. Defeating one gives
+
+    5% × 1.3^(enemy level − your level)
+
+| Enemy vs you | −5 | −3 | −1 | 0 | +1 | +3 | +5 |
+|---|---|---|---|---|---|---|---|
+| Multiplier | ×0.27 | ×0.46 | ×0.77 | ×1 | ×1.3 | ×2.2 | ×3.7 |
+| Reward | 1.3% | 2.3% | 3.8% | 5% | 6.5% | 11% | 19% |
+
+1.3 keeps the curve gentle: a boss five levels above you is worth almost a
+fifth of a level, while trash mobs far below you still give a token 1 EXP.
+EXP is awarded when the encounter ends: for every enemy on a victory, and for
+enemies brought to 0 HP otherwise. Enemies without a level count as even.
+
+### Character points
+
+Each level gives **3 CP**. Click the CP badge next to the EXP bar to spend them:
+
+- **+1 attribute costs 1 CP.** 5 attribute points make +1 on every roll with
+  that attribute, so +1 to rolls costs 5 CP, but it is broad.
+- **+1 skill level costs 2 CP.** A direct +1, but only for that skill.
+
+This follows HERO's split: characteristics are cheap per point and broad,
+skills are cheaper per +1 but narrow. Only points added in the dialog can be
+taken back before applying; attributes and skills can still be edited freely
+on the sheet.
+
+All of these numbers are in Settings → Progression.
+
 ## Not built yet
 
 Natural next steps for the system:
 
 - NPC attributes/skills, and opposed checks (both sides roll, compare margins).
 - Feeding encounter combat through the same rules instead of AI judgement.
-- Advancement: attributes and skills that grow through play, with a cost
-  (HERO's point-buy is a good model).
+- Offering EXP when the tracker AI removes a quest by itself.
 - A "check" mode in the manual dice roller.

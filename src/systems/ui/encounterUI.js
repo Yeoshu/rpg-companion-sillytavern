@@ -10,6 +10,7 @@ import { selected_group, getGroupMembers, groups } from '../../../../../../group
 import { executeSlashCommandsOnChatInput } from '../../../../../../../scripts/slash-commands.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings } from '../../core/persistence.js';
+import { encounterRewards, grantExp } from '../features/experience.js';
 import { i18n } from '../../core/i18n.js';
 import { getSafeThumbnailUrl } from '../../utils/avatars.js';
 import {
@@ -31,6 +32,20 @@ import {
  * EncounterModal class
  * Manages the combat encounter UI
  */
+/**
+ * Copies enemy levels from the previous combat state onto an updated one
+ * (matched by name, then by position). Enemies without a known level are
+ * treated as an even match when EXP is awarded.
+ */
+function keepEnemyLevels(previous, next) {
+    const before = previous?.enemies || [];
+    (next?.enemies || []).forEach((enemy, index) => {
+        if (!enemy || Number(enemy.level) > 0) return;
+        const match = before.find(e => e?.name === enemy.name) || before[index];
+        if (match && Number(match.level) > 0) enemy.level = match.level;
+    });
+}
+
 export class EncounterModal {
     constructor() {
         this.modal = null;
@@ -63,6 +78,7 @@ export class EncounterModal {
         if (this.isInitializing) return;
 
         this.isInitializing = true;
+        this._expAwarded = false;
 
         try {
             // Create modal if it doesn't exist
@@ -431,7 +447,7 @@ export class EncounterModal {
                         ${avatarUrl ? `<img src="${avatarUrl}" alt="${enemy.name}" onerror="this.parentElement.innerHTML='${sprite}';this.onerror=null;">` : sprite}
                     </div>
                     <div class="rpg-encounter-card-info">
-                        <h4>${enemy.name}</h4>
+                        <h4>${enemy.name}${Number(enemy.level) > 0 ? ` <span class="rpg-encounter-level">${i18n.getTranslation('encounter.ui.levelShort') || 'Lv'} ${Math.round(enemy.level)}</span>` : ''}</h4>
                         <div class="rpg-encounter-hp-bar">
                             <div class="rpg-encounter-hp-fill" style="width: ${hpPercent}%"></div>
                             <span class="rpg-encounter-hp-text">${enemy.hp}/${enemy.maxHp}${i18n.getTranslation('encounter.ui.hpSuffix') || ' HP'}</span>
@@ -835,6 +851,9 @@ export class EncounterModal {
                 return;
             }
 
+            // Turn updates don't repeat enemy levels; carry them over from the previous state.
+            keepEnemyLevels(currentEncounter.combatStats, result.combatStats);
+
             // Update encounter state
             updateCurrentEncounter({
                 combatStats: result.combatStats,
@@ -1075,6 +1094,7 @@ export class EncounterModal {
         try {
             // Show combat over screen
             this.showCombatOverScreen(result);
+            this.awardCombatExp(result);
 
             // Generate summary
             const summaryPrompt = await buildCombatSummaryPrompt(currentEncounter.encounterLog, result);
@@ -1133,6 +1153,28 @@ export class EncounterModal {
             console.error('[RPG Companion] Error ending combat:', error);
             this.updateCombatOverScreen(false);
         }
+    }
+
+    /**
+     * Grants EXP for the enemies beaten in this encounter and lists it on the combat-over screen.
+     * @param {string} result - Combat result
+     */
+    awardCombatExp(result) {
+        if (this._expAwarded) return;
+        this._expAwarded = true;
+        const rewards = encounterRewards(currentEncounter.combatStats?.enemies, result);
+        if (!rewards.total) return;
+        grantExp(rewards.total, i18n.getTranslation('progression.encounterDone') || 'Encounter');
+
+        const overScreen = this.modal?.querySelector('.rpg-encounter-over');
+        if (!overScreen) return;
+        const lvl = i18n.getTranslation('encounter.ui.levelShort') || 'Lv';
+        const list = document.createElement('div');
+        list.className = 'rpg-encounter-exp';
+        const escape = (text) => String(text).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        list.innerHTML = `<div class="rpg-encounter-exp-total">+${rewards.total} ${i18n.getTranslation('progression.exp') || 'EXP'}</div>`
+            + rewards.enemies.map(e => `<div>${escape(e.name)} <span>(${lvl} ${e.level})</span> +${e.exp}</div>`).join('');
+        overScreen.querySelector('h2')?.after(list);
     }
 
     /**
@@ -1369,12 +1411,10 @@ export class EncounterModal {
         // console.log('[RPG Companion] Regenerating request:', this.lastRequest.type);
 
         if (this.lastRequest.type === 'init') {
-            // Retry initialization
-            this.isInitializing = true;
+            // Retry initialization (initialize() sets its own busy flag)
             await this.initialize();
         } else if (this.lastRequest.type === 'action') {
-            // Retry action
-            this.isProcessing = true;
+            // Retry action (processCombatAction() sets its own busy flag)
             await this.processCombatAction(this.lastRequest.action);
         }
     }

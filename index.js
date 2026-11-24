@@ -149,6 +149,9 @@ import { ensureHtmlCleaningRegex, detectConflictingRegexScripts, ensureTrackerCl
 import { ensureJsonCleaningRegex, removeJsonCleaningRegex } from './src/systems/features/jsonCleaning.js';
 import { parseAndStoreSpotifyUrl } from './src/systems/features/musicPlayer.js';
 import { attachQueuedRollTo, updateDiceInjection } from './src/systems/mechanics/rollState.js';
+import { getProgression } from './src/systems/features/experience.js';
+import { DEFAULT_PROGRESSION } from './src/systems/mechanics/progression.js';
+
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
 import { openEncounterModal } from './src/systems/ui/encounterUI.js';
 
@@ -458,6 +461,26 @@ async function initUI() {
         extensionSettings.enableNaturalPlot = $(this).prop('checked');
         saveSettings();
         togglePlotButtons();
+    });
+
+    // Progression tuning (EXP rewards, character points)
+    $(document).on('change', '[data-progression]', function() {
+        const key = $(this).data('progression');
+        const value = Number($(this).val());
+        if (!extensionSettings.progression || typeof extensionSettings.progression !== 'object') {
+            extensionSettings.progression = {};
+        }
+        extensionSettings.progression[key] = Number.isFinite(value) ? value : undefined;
+        extensionSettings.progression = getProgression(); // invalid values fall back to defaults
+        fillProgressionInputs(); // show the values actually used (min/max may have been swapped)
+        saveSettings();
+        $(document).trigger('rpg:progressionChanged');
+    });
+    $('#rpg-progression-reset').on('click', function() {
+        extensionSettings.progression = { ...DEFAULT_PROGRESSION };
+        fillProgressionInputs();
+        saveSettings();
+        $(document).trigger('rpg:progressionChanged');
     });
 
     $('#rpg-toggle-attempt-button').on('change', function() {
@@ -1083,6 +1106,7 @@ async function initUI() {
 
     $('#rpg-toggle-randomized-plot').prop('checked', extensionSettings.enableRandomizedPlot ?? true);
     $('#rpg-toggle-natural-plot').prop('checked', extensionSettings.enableNaturalPlot ?? true);
+    fillProgressionInputs();
     $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);
@@ -1221,6 +1245,14 @@ async function initUI() {
 // Event handlers removed - now imported from src/systems/integration/sillytavern.js
 // (commitTrackerData, onMessageSent, onMessageReceived, onCharacterChanged,
 //  onMessageSwiped, updatePersonaAvatar, clearExtensionPrompts)
+
+/** Shows the progression settings actually in use (defaults filled in). */
+function fillProgressionInputs() {
+    const values = getProgression();
+    $('[data-progression]').each(function() {
+        $(this).val(values[$(this).data('progression')]);
+    });
+}
 
 /**
  * SillyTavern awaits this before building each prompt (manifest "generate_interceptor"),
@@ -1425,6 +1457,11 @@ jQuery(async () => {
                 if (evt) eventSource.on(evt, () => setTimeout(() => updateDiceDisplay(), 0));
             }
             $(document).on('rpg:diceRollChanged', () => updateDiceDisplay());
+            $(document).on('rpg:progressionChanged', () => {
+                renderUserStats();
+                updateFabWidgets();
+                updateStripWidgets();
+            });
 
             eventSource.on(event_types.MESSAGE_DELETED, () => {
                 if (!extensionSettings.enabled) {

@@ -725,6 +725,9 @@ export function saveChatData() {
         userStats: extensionSettings.userStats,
         classicStats: extensionSettings.classicStats,
         skillLevels: extensionSettings.skillLevels || {},
+        level: extensionSettings.level,
+        exp: extensionSettings.exp || 0,
+        characterPoints: extensionSettings.characterPoints || 0,
         queuedDiceRoll: queuedDiceRoll,
         quests: extensionSettings.quests,
         lastGeneratedData: lastGeneratedData,
@@ -1014,6 +1017,11 @@ export function loadChatData() {
     // Skill levels and any roll queued for the next message are per chat.
     extensionSettings.skillLevels = savedData?.skillLevels ? { ...savedData.skillLevels } : {};
     setQueuedDiceRoll(savedData?.queuedDiceRoll || null);
+
+    // Progression is per chat. Chats saved before EXP existed keep the current level.
+    if (Number.isFinite(savedData?.level)) extensionSettings.level = savedData.level;
+    extensionSettings.exp = Number(savedData?.exp) || 0;
+    extensionSettings.characterPoints = Number(savedData?.characterPoints) || 0;
 
     // Restore quests
     if (savedData?.quests) {
