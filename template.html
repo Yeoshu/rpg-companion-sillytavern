@@ -454,6 +454,7 @@
                     Display a toggle button to enable/disable narrator mode (infer characters from context).
                 </small>
 
+
                 <label class="checkbox_label">
                     <input type="checkbox" id="rpg-toggle-show-auto-avatars" />
                     <span data-i18n-key="template.settingsModal.display.showAutoAvatars">Show Auto-generate Avatars</span>
@@ -479,6 +480,24 @@
                 <small class="rpg-note rpg-note-indented"
                     data-i18n-key="template.settingsModal.display.showNaturalPlotNote">
                     Display button for context-aware narrative continuation prompts.
+                </small>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-attempt-button" />
+                    <span data-i18n-key="template.settingsModal.display.showAttempt">Show Attempt</span>
+                </label>
+                <small class="rpg-note rpg-note-indented"
+                    data-i18n-key="template.settingsModal.display.showAttemptNote">
+                    Display a button that sends your typed message as an attempt that needs a dice check. You choose the attribute, skill and difficulty, roll, and the result goes into the AI's context for its reply.
+                </small>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-attempt-suggest" />
+                    <span data-i18n-key="template.settingsModal.display.attemptSuggest">Suggest the check with AI</span>
+                </label>
+                <small class="rpg-note rpg-note-indented"
+                    data-i18n-key="template.settingsModal.display.attemptSuggestNote">
+                    When you click Attempt, ask the AI which attribute, skill and difficulty fit before showing the roll dialog (one short request, only on click). Turn off to pick them yourself.
                 </small>
 
                 <label class="checkbox_label">
@@ -604,6 +623,66 @@
                         <span data-i18n-key="template.settingsModal.desktopStrip.attributes">RPG Attributes (STR, DEX, etc.)</span>
                     </label>
                 </div>
+            </div>
+
+            <div class="rpg-settings-group">
+                <h4 data-i18n-key="template.settingsModal.progressionTitle"><i class="fa-solid fa-arrow-up-right-dots"
+                        aria-hidden="true"></i> Progression</h4>
+                <small class="rpg-note" data-i18n-key="template.settingsModal.progression.note">
+                    Rewards are a percentage of the current EXP bar, so levelling keeps the same pace at every level. Quest rewards are rolled between the min and max. An enemy gives the base % × the factor for each level it is above you (or ÷ for each level below).
+                </small>
+                <div class="rpg-progression-grid">
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progExpBase">EXP per level</span>
+                        <input type="number" class="rpg-input" data-progression="expBase" min="1" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progMainMin">Main quest, min %</span>
+                        <input type="number" class="rpg-input" data-progression="mainQuestMin" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progMainMax">Main quest, max %</span>
+                        <input type="number" class="rpg-input" data-progression="mainQuestMax" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progSideMin">Side quest, min %</span>
+                        <input type="number" class="rpg-input" data-progression="sideQuestMin" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progSideMax">Side quest, max %</span>
+                        <input type="number" class="rpg-input" data-progression="sideQuestMax" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progEnemyBase">Enemy of your level, %</span>
+                        <input type="number" class="rpg-input" data-progression="enemyBase" min="0" step="0.5" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progEnemyFactor">Per level of difference, ×</span>
+                        <input type="number" class="rpg-input" data-progression="enemyLevelFactor" min="1" step="0.05" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progPointsPerLevel">Character points per level</span>
+                        <input type="number" class="rpg-input" data-progression="pointsPerLevel" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progAttrCost">CP cost: +1 attribute</span>
+                        <input type="number" class="rpg-input" data-progression="attributeCost" min="1" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progSkillCost">CP cost: +1 skill level</span>
+                        <input type="number" class="rpg-input" data-progression="skillCost" min="1" step="1" />
+                    </label>
+                </div>
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-ask-dropped-quests" />
+                    <span data-i18n-key="template.settingsModal.progression.askDropped">Ask when the tracker removes a quest</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.progression.askDroppedNote">
+                    When an AI tracker update drops a quest, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.
+                </small>
+                <button type="button" id="rpg-progression-reset" class="menu_button">
+                    <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.settingsModal.progression.reset">Restore defaults</span>
+                </button>
             </div>
 
             <div class="rpg-settings-group">
@@ -1063,6 +1142,20 @@
                 </small>
                 <textarea id="rpg-prompt-narrator" class="rpg-prompt-textarea" rows="3"></textarea>
                 <button class="menu_button rpg-restore-prompt-btn" data-prompt="narrator" style="margin-top: 8px;">
+                    <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.promptsEditor.restoreDefault">Restore Default</span>
+                </button>
+            </div>
+
+            <!-- Attempt Check Prompt -->
+            <div class="rpg-prompt-editor-section">
+                <label for="rpg-prompt-attempt" class="rpg-field-label">
+                    <i class="fa-solid fa-dice-d20"></i> <span data-i18n-key="template.promptsEditor.attemptPrompt.title">Attempt Check Prompt</span>
+                </label>
+                <small class="rpg-note" data-i18n-key="template.promptsEditor.attemptPrompt.note">
+                    Sent when you click Attempt (if "Suggest the check with AI" is on), to pick the attribute, skill and difficulty for your typed action. Placeholders: {{user}}, {{char}}, {{attributes}}, {{skills}}, {{context}}, {{action}}. It must ask for the JSON answer shown in the default.
+                </small>
+                <textarea id="rpg-prompt-attempt" class="rpg-prompt-textarea" rows="8"></textarea>
+                <button class="menu_button rpg-restore-prompt-btn" data-prompt="attempt" style="margin-top: 8px;">
                     <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.promptsEditor.restoreDefault">Restore Default</span>
                 </button>
             </div>

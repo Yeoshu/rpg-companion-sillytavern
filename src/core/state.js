@@ -256,7 +256,27 @@ export let extensionSettings = {
         wis: 10,
         cha: 10
     },
-    lastDiceRoll: null, // Store last dice roll result
+    lastDiceRoll: null, // Legacy: rolls now live on chat messages (mechanics/rollState.js)
+    skillLevels: {}, // Per-chat skill levels, keyed by lowercase skill name
+    exp: 0, // Per-chat EXP towards the next level
+    characterPoints: 0, // Per-chat unspent character points
+    resolvedQuests: [], // Per-chat quests already completed/removed/answered (lowercase titles)
+    askAboutDroppedQuests: true, // Ask whether quests the tracker AI removes were completed
+    progression: { // Tuning for EXP and character points (see src/systems/mechanics/progression.js)
+        expBase: 100,
+        mainQuestMin: 20,
+        mainQuestMax: 30,
+        sideQuestMin: 5,
+        sideQuestMax: 10,
+        enemyBase: 5,
+        enemyLevelFactor: 1.3,
+        pointsPerLevel: 3,
+        attributeCost: 1,
+        skillCost: 2
+    },
+    showAttemptButton: true, // Show the Attempt (roll for it) button above the chat input
+    attemptSuggest: true, // Ask the AI which attribute/skill/difficulty fits when Attempt is clicked
+    customAttemptPrompt: '', // Custom attempt check prompt (empty = use default)
     showDiceDisplay: true, // Show the "Last Roll" display in the panel
     collapsedInventoryLocations: [], // Array of collapsed storage location names
     inventoryViewModes: {
@@ -431,6 +451,12 @@ export function incrementSeparateGenerationId() {
 export let pendingDiceRoll = null;
 
 /**
+ * A roll saved before the user sends their message. It attaches to the next
+ * user message (see mechanics/rollState.js) and is saved per chat.
+ */
+export let queuedDiceRoll = null;
+
+/**
  * Debug logs array for troubleshooting
  */
 export let debugLogs = [];
@@ -535,6 +561,10 @@ export function setPendingDiceRoll(roll) {
 
 export function getPendingDiceRoll() {
     return pendingDiceRoll;
+}
+
+export function setQueuedDiceRoll(roll) {
+    queuedDiceRoll = roll;
 }
 
 export function setPanelContainer($element) {

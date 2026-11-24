@@ -7,6 +7,7 @@ import { extensionSettings, $questsContainer, committedTrackerData, lastGenerate
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { isItemLocked, setItemLock } from '../generation/lockManager.js';
 import { i18n } from '../../core/i18n.js';
+import { completeQuest, markQuestResolved } from '../features/experience.js';
 
 /**
  * Syncs the current extensionSettings.quests to committedTrackerData.userStats
@@ -31,6 +32,12 @@ function syncQuestsToCommittedData() {
             console.warn('[RPG Quests] Failed to sync quests to committed data:', e);
         }
     }
+}
+
+/** Plain title of a quest value (which may be a locked {value} wrapper). */
+function questTitleOf(quest) {
+    while (quest && typeof quest === 'object' && quest.value !== undefined) quest = quest.value;
+    return typeof quest === 'string' && quest !== 'None' ? quest : '';
 }
 
 /**
@@ -124,8 +131,11 @@ export function renderMainQuestView(mainQuest) {
                             <button class="rpg-quest-edit" data-action="edit-quest" data-field="main" title="${i18n.getTranslation('quests.editQuestTitle') || 'Edit quest'}">
                                 <i class="fa-solid fa-edit"></i>
                             </button>
-                            <button class="rpg-quest-remove" data-action="remove-quest" data-field="main" title="${i18n.getTranslation('quests.removeQuestTitle') || 'Complete/Remove quest'}">
+                            <button class="rpg-quest-complete" data-action="complete-quest" data-field="main" title="${i18n.getTranslation('quests.completeQuestTitle') || 'Complete quest (gain EXP)'}">
                                 <i class="fa-solid fa-check"></i>
+                            </button>
+                            <button class="rpg-quest-remove" data-action="remove-quest" data-field="main" title="${i18n.getTranslation('quests.removeQuestTitle') || 'Remove quest (no EXP)'}">
+                                <i class="fa-solid fa-xmark"></i>
                             </button>
                         </div>
                     </div>
@@ -175,8 +185,11 @@ export function renderOptionalQuestsView(optionalQuests) {
                 ${getLockIconHtml('userStats', `quests.optional[${index}]`)}
                 <div class="rpg-quest-title rpg-editable" contenteditable="true" data-field="optional" data-index="${index}" title="${i18n.getTranslation('global.clickToEdit') || 'Click to edit'}">${escapeHtml(quest)}</div>
                 <div class="rpg-quest-actions">
-                    <button class="rpg-quest-remove" data-action="remove-quest" data-field="optional" data-index="${index}" title="${i18n.getTranslation('quests.removeQuestTitle') || 'Complete/Remove quest'}">
+                    <button class="rpg-quest-complete" data-action="complete-quest" data-field="optional" data-index="${index}" title="${i18n.getTranslation('quests.completeQuestTitle') || 'Complete quest (gain EXP)'}">
                         <i class="fa-solid fa-check"></i>
+                    </button>
+                    <button class="rpg-quest-remove" data-action="remove-quest" data-field="optional" data-index="${index}" title="${i18n.getTranslation('quests.removeQuestTitle') || 'Remove quest (no EXP)'}">
+                        <i class="fa-solid fa-xmark"></i>
                     </button>
                 </div>
             </div>
@@ -332,10 +345,17 @@ function attachQuestEventHandlers() {
         }
     });
 
-    // Remove quest
-    $questsContainer.find('[data-action="remove-quest"]').on('click', function() {
+    // Complete (gain EXP) or remove (no EXP) a quest
+    $questsContainer.find('[data-action="remove-quest"], [data-action="complete-quest"]').on('click', function() {
         const field = $(this).data('field');
         const index = $(this).data('index');
+
+        if ($(this).data('action') === 'complete-quest') {
+            const title = field === 'main' ? questTitleOf(extensionSettings.quests.main) : questTitleOf(extensionSettings.quests.optional[index]);
+            completeQuest(field === 'main' ? 'main' : 'side', title);
+        } else {
+            markQuestResolved(field === 'main' ? questTitleOf(extensionSettings.quests.main) : questTitleOf(extensionSettings.quests.optional[index]));
+        }
 
         if (field === 'main') {
             extensionSettings.quests.main = 'None';

@@ -40,6 +40,7 @@ import { i18n } from '../../core/i18n.js';
 
 // Generation & Parsing
 import { parseResponse, parseUserStats } from '../generation/parser.js';
+import { snapshotQuests, reviewDroppedQuests } from '../features/experience.js';
 import { parseAndStoreSpotifyUrl, convertToEmbedUrl } from '../features/musicPlayer.js';
 import { updateRPGData } from '../generation/apiClient.js';
 import { removeLocks } from '../generation/lockManager.js';
@@ -493,7 +494,9 @@ export async function onMessageReceived(data) {
             // console.log('[RPG Companion] 📝 TOGETHER MODE: Updating lastGeneratedData with parsed response');
             if (parsedData.userStats) {
                 lastGeneratedData.userStats = parsedData.userStats;
+                const questsBefore = snapshotQuests();
                 parseUserStats(parsedData.userStats);
+                reviewDroppedQuests(questsBefore);
             }
             if (parsedData.infoBox) {
                 lastGeneratedData.infoBox = parsedData.infoBox;

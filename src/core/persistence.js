@@ -16,6 +16,8 @@ import {
     setCommittedTrackerData,
     setThoughtBasedExpressionPortraits,
     clearThoughtBasedExpressionPortraits,
+    queuedDiceRoll,
+    setQueuedDiceRoll,
     FEATURE_FLAGS
 } from './state.js';
 import { migrateInventory } from '../utils/migration.js';
@@ -562,9 +564,17 @@ export function loadSettings() {
 
             updateExtensionSettings(normalizedSettings);
 
+            // Dice rolls used to be stored globally (and leaked into every chat);
+            // they now live on chat messages. Drop the old global value.
+            let droppedGlobalRoll = false;
+            if (extensionSettings.lastDiceRoll) {
+                extensionSettings.lastDiceRoll = null;
+                droppedGlobalRoll = true;
+            }
+
             // Perform settings migrations based on version
             const currentVersion = extensionSettings.settingsVersion || 1;
-            let settingsChanged = normalizedResult.changed;
+            let settingsChanged = normalizedResult.changed || droppedGlobalRoll;
 
             // Migration to version 2: Enable dynamic weather for existing users
             if (currentVersion < 2) {
@@ -714,6 +724,12 @@ export function saveChatData() {
     chat_metadata.rpg_companion = {
         userStats: extensionSettings.userStats,
         classicStats: extensionSettings.classicStats,
+        skillLevels: extensionSettings.skillLevels || {},
+        level: extensionSettings.level,
+        exp: extensionSettings.exp || 0,
+        characterPoints: extensionSettings.characterPoints || 0,
+        resolvedQuests: extensionSettings.resolvedQuests || [],
+        queuedDiceRoll: queuedDiceRoll,
         quests: extensionSettings.quests,
         lastGeneratedData: lastGeneratedData,
         committedTrackerData: committedTrackerData,
@@ -998,6 +1014,16 @@ export function loadChatData() {
     if (savedData?.classicStats) {
         extensionSettings.classicStats = { ...savedData.classicStats };
     }
+
+    // Skill levels and any roll queued for the next message are per chat.
+    extensionSettings.skillLevels = savedData?.skillLevels ? { ...savedData.skillLevels } : {};
+    setQueuedDiceRoll(savedData?.queuedDiceRoll || null);
+
+    // Progression is per chat. Chats saved before EXP existed keep the current level.
+    if (Number.isFinite(savedData?.level)) extensionSettings.level = savedData.level;
+    extensionSettings.exp = Number(savedData?.exp) || 0;
+    extensionSettings.characterPoints = Number(savedData?.characterPoints) || 0;
+    extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
 
     // Restore quests
     if (savedData?.quests) {

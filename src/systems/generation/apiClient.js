@@ -26,6 +26,7 @@ import {
     generateSeparateUpdatePrompt
 } from './promptBuilder.js';
 import { parseResponse, parseUserStats } from './parser.js';
+import { snapshotQuests, reviewDroppedQuests } from '../features/experience.js';
 import { parseAndStoreSpotifyUrl } from '../features/musicPlayer.js';
 import { renderUserStats } from '../rendering/userStats.js';
 import { renderInfoBox } from '../rendering/infoBox.js';
@@ -307,7 +308,9 @@ export async function updateRPGData(renderUserStats, renderInfoBox, renderThough
             // Update lastGeneratedData for display (regardless of message type)
             if (parsedData.userStats) {
                 lastGeneratedData.userStats = parsedData.userStats;
+                const questsBefore = snapshotQuests();
                 parseUserStats(parsedData.userStats);
+                reviewDroppedQuests(questsBefore);
             }
             if (parsedData.infoBox) {
                 lastGeneratedData.infoBox = parsedData.infoBox;

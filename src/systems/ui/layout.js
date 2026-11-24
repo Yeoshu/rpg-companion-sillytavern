@@ -225,11 +225,13 @@ export function togglePlotButtons() {
     const showRandom = !!extensionSettings.enableRandomizedPlot;
     const showNatural = !!extensionSettings.enableNaturalPlot;
     const showEncounter = !!extensionSettings.encounterSettings?.enabled;
+    const showAttempt = extensionSettings.showAttemptButton ?? true;
 
     $('#rpg-plot-random').toggle(showRandom);
     $('#rpg-plot-natural').toggle(showNatural);
     $('#rpg-encounter-button').toggle(showEncounter);
-    $('#rpg-plot-buttons').toggle(showRandom || showNatural || showEncounter);
+    $('#rpg-attempt-button').toggle(showAttempt);
+    $('#rpg-plot-buttons').toggle(showRandom || showNatural || showEncounter || showAttempt);
 }
 
 /**

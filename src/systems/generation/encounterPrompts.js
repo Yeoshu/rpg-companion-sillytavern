@@ -10,7 +10,7 @@ import { extensionSettings, committedTrackerData } from '../../core/state.js';
 import { currentEncounter } from '../features/encounterState.js';
 import { repairJSON } from '../../utils/jsonRepair.js';
 import { isPresentCharactersEnabled } from '../../utils/presentCharacters.js';
-import { buildInventorySummary, generateTrackerInstructions, generateTrackerExample } from './promptBuilder.js';
+import { buildInventorySummary, generateTrackerInstructions, generateTrackerExample, buildAttributesString } from './promptBuilder.js';
 import { applyLocks } from './lockManager.js';
 
 /**
@@ -233,12 +233,12 @@ export async function buildEncounterInitPrompt() {
     }
 
     // Add classic stats/attributes
+    // (uses the configured attributes, so custom/disabled ones are respected)
     if (extensionSettings.classicStats) {
-        const stats = extensionSettings.classicStats;
-        userStatsInfo += `${userName}'s Attributes: `;
-        const showLevel = extensionSettings.trackerConfig?.userStats?.showLevel !== false;
-        const levelStr = showLevel ? `, LVL ${extensionSettings.level}` : '';
-        userStatsInfo += `STR ${stats.str}, DEX ${stats.dex}, CON ${stats.con}, INT ${stats.int}, WIS ${stats.wis}, CHA ${stats.cha}${levelStr}\n\n`;
+        const attributesString = buildAttributesString();
+        if (attributesString) {
+            userStatsInfo += `${userName}'s Attributes: ${attributesString}\n\n`;
+        }
     }
 
     // Add present characters info for party members
@@ -279,6 +279,7 @@ export async function buildEncounterInitPrompt() {
     initInstruction += `  "enemies": [\n`;
     initInstruction += `    {\n`;
     initInstruction += `      "name": "Enemy Name",\n`;
+    initInstruction += `      "level": X,\n`;
     initInstruction += `      "hp": X,\n`;
     initInstruction += `      "maxHp": X,\n`;
     initInstruction += `      "attacks": [\n`;
@@ -312,6 +313,7 @@ export async function buildEncounterInitPrompt() {
     initInstruction += `  - Examples: Poisoned (🧪), Burning (🔥), Blessed (✨), Stunned (💫), Weakened (⬇️), Strengthened (⬆️)\n\n`;
     initInstruction += `The styleNotes object will be used to visually style the combat window - choose ONE value from each category that best fits the environment described in the chat history.\n\n`;
     initInstruction += `Use the user's current stats, inventory, and skills to populate the party data. For ${userName}'s attacks array, include their available skills. For items, include usable items from their inventory WITH QUANTITIES (e.g., "Health Potion x3"). Set HP based on their current Health stat if available.\n\n`;
+    initInstruction += `Give every enemy a "level" on the same scale as ${userName}, who is level ${Math.max(1, Math.floor(extensionSettings.level) || 1)}: an evenly matched foe is the same level, weaker foes (minions, ordinary animals) are lower, and stronger ones (veterans, bosses, monsters) are higher. Judge it from how dangerous the enemy is in the story, not from ${userName}'s level alone.\n\n`;
     initInstruction += `Ensure all party members and enemies have realistic HP values based on the setting and their descriptions. Return ONLY the JSON object, no other text.`;
 
     // Only add the instruction if it has meaningful content
@@ -425,19 +427,10 @@ export async function buildCombatActionPrompt(action, combatStats) {
 
         // Add ONLY classic stats/attributes if enabled
         if (extensionSettings.classicStats) {
-            const stats = extensionSettings.classicStats;
-            const config = extensionSettings.trackerConfig?.userStats;
-            const rpgAttributes = (config?.rpgAttributes && config.rpgAttributes.length > 0) ? config.rpgAttributes : [
-                { id: 'str', name: 'STR', enabled: true },
-                { id: 'dex', name: 'DEX', enabled: true },
-                { id: 'con', name: 'CON', enabled: true },
-                { id: 'int', name: 'INT', enabled: true },
-                { id: 'wis', name: 'WIS', enabled: true },
-                { id: 'cha', name: 'CHA', enabled: true }
-            ];
-            const enabledAttributes = rpgAttributes.filter(attr => attr && attr.enabled && attr.name && attr.id);
-            const attributeStrings = enabledAttributes.map(attr => `${attr.name} ${stats[attr.id] || 10}`);
-            systemMessage += `\nAttributes: ${attributeStrings.join(', ')}, LVL ${extensionSettings.level}\n`;
+            const attributesString = buildAttributesString();
+            if (attributesString) {
+                systemMessage += `\nAttributes: ${attributesString}\n`;
+            }
         }
 
         systemMessage += `</persona>\n\n`;
@@ -517,7 +510,7 @@ export async function buildCombatActionPrompt(action, combatStats) {
 
     stateMessage += `\nEnemies:\n`;
     combatStats.enemies.forEach(enemy => {
-        stateMessage += `- ${enemy.name} (${enemy.sprite || ''}): ${enemy.hp}/${enemy.maxHp} HP\n`;
+        stateMessage += `- ${enemy.name} (${enemy.sprite || ''})${enemy.level ? `, level ${enemy.level}` : ''}: ${enemy.hp}/${enemy.maxHp} HP\n`;
         if (enemy.description) {
             stateMessage += `  ${enemy.description}\n`;
         }

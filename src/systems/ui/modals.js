@@ -29,6 +29,7 @@ import {
     addDiceQuickReply as addDiceQuickReplyCore
 } from '../features/dice.js';
 import { i18n } from '../../core/i18n.js';
+import { queueRoll } from '../mechanics/rollState.js';
 
 /**
  * Modern DiceModal ES6 Class
@@ -304,8 +305,9 @@ export function setupDiceRoller() {
         // Save the pending roll
         const roll = getPendingDiceRoll();
         if (roll) {
-            extensionSettings.lastDiceRoll = roll;
-            saveSettings();
+            // Queued for this chat; it attaches to the next message the user sends.
+            queueRoll({ kind: 'free', ...roll });
+            saveChatData();
             updateDiceDisplayCore();
             setPendingDiceRoll(null);
         }
@@ -455,11 +457,14 @@ export function setupSettingsPopup() {
             cha: 10
         };
 
-        // Clear dice roll
-        extensionSettings.lastDiceRoll = null;
+        // Clear any queued dice roll for this chat
+        queueRoll(null);
 
         // Reset level to 1
         extensionSettings.level = 1;
+        extensionSettings.exp = 0;
+        extensionSettings.characterPoints = 0;
+        extensionSettings.resolvedQuests = [];
 
         // Clear quests
         extensionSettings.quests = {

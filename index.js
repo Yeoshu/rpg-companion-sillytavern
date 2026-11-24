@@ -148,6 +148,10 @@ import { setupClassicStatsButtons } from './src/systems/features/classicStats.js
 import { ensureHtmlCleaningRegex, detectConflictingRegexScripts, ensureTrackerCleaningRegex } from './src/systems/features/htmlCleaning.js';
 import { ensureJsonCleaningRegex, removeJsonCleaningRegex } from './src/systems/features/jsonCleaning.js';
 import { parseAndStoreSpotifyUrl } from './src/systems/features/musicPlayer.js';
+import { attachQueuedRollTo, updateDiceInjection } from './src/systems/mechanics/rollState.js';
+import { getProgression } from './src/systems/features/experience.js';
+import { DEFAULT_PROGRESSION } from './src/systems/mechanics/progression.js';
+
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
 import { openEncounterModal } from './src/systems/ui/encounterUI.js';
 
@@ -457,6 +461,41 @@ async function initUI() {
         extensionSettings.enableNaturalPlot = $(this).prop('checked');
         saveSettings();
         togglePlotButtons();
+    });
+
+    // Progression tuning (EXP rewards, character points)
+    $(document).on('change', '[data-progression]', function() {
+        const key = $(this).data('progression');
+        const value = Number($(this).val());
+        if (!extensionSettings.progression || typeof extensionSettings.progression !== 'object') {
+            extensionSettings.progression = {};
+        }
+        extensionSettings.progression[key] = Number.isFinite(value) ? value : undefined;
+        extensionSettings.progression = getProgression(); // invalid values fall back to defaults
+        fillProgressionInputs(); // show the values actually used (min/max may have been swapped)
+        saveSettings();
+        $(document).trigger('rpg:progressionChanged');
+    });
+    $('#rpg-toggle-ask-dropped-quests').on('change', function() {
+        extensionSettings.askAboutDroppedQuests = $(this).prop('checked');
+        saveSettings();
+    });
+    $('#rpg-progression-reset').on('click', function() {
+        extensionSettings.progression = { ...DEFAULT_PROGRESSION };
+        fillProgressionInputs();
+        saveSettings();
+        $(document).trigger('rpg:progressionChanged');
+    });
+
+    $('#rpg-toggle-attempt-button').on('change', function() {
+        extensionSettings.showAttemptButton = $(this).prop('checked');
+        saveSettings();
+        togglePlotButtons();
+    });
+
+    $('#rpg-toggle-attempt-suggest').on('change', function() {
+        extensionSettings.attemptSuggest = $(this).prop('checked');
+        saveSettings();
     });
 
     $('#rpg-toggle-encounters').on('change', function() {
@@ -1071,6 +1110,10 @@ async function initUI() {
 
     $('#rpg-toggle-randomized-plot').prop('checked', extensionSettings.enableRandomizedPlot ?? true);
     $('#rpg-toggle-natural-plot').prop('checked', extensionSettings.enableNaturalPlot ?? true);
+    fillProgressionInputs();
+    $('#rpg-toggle-ask-dropped-quests').prop('checked', extensionSettings.askAboutDroppedQuests ?? true);
+    $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
+    $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);
     $('#rpg-encounter-history-depth').val(extensionSettings.encounterSettings?.historyDepth ?? 8);
     $('#rpg-toggle-autosave-logs').prop('checked', extensionSettings.encounterSettings?.autoSaveLogs ?? true);
@@ -1207,6 +1250,33 @@ async function initUI() {
 // Event handlers removed - now imported from src/systems/integration/sillytavern.js
 // (commitTrackerData, onMessageSent, onMessageReceived, onCharacterChanged,
 //  onMessageSwiped, updatePersonaAvatar, clearExtensionPrompts)
+
+/** Shows the progression settings actually in use (defaults filled in). */
+function fillProgressionInputs() {
+    const values = getProgression();
+    $('[data-progression]').each(function() {
+        $(this).val(values[$(this).data('progression')]);
+    });
+}
+
+/**
+ * SillyTavern awaits this before building each prompt (manifest "generate_interceptor"),
+ * after the user's message has been added to the chat.
+ * Sets the dice prompt (the roll attached to the message being answered) for this generation.
+ */
+globalThis.rpgCompanionGenerateInterceptor = async function (_chat, _contextSize, _abort, type) {
+    try {
+        // Quiet generations (other extensions, summaries) and impersonation never get dice context.
+        if (!extensionSettings.enabled || type === 'quiet' || type === 'impersonate') {
+            updateDiceInjection(false);
+            return;
+        }
+        updateDiceInjection(true);
+        updateDiceDisplay();
+    } catch (error) {
+        console.error('[RPG Companion] Generate interceptor failed:', error);
+    }
+};
 
 /**
  * Main initialization function.
@@ -1377,6 +1447,25 @@ jQuery(async () => {
             eventSource.on(event_types.CHAT_CHANGED, () => {
                 clearThoughtBasedExpressionsCache();
                 setTimeout(() => onThoughtBasedExpressionsChatChanged(), 0);
+            });
+
+            // Dice: a roll queued before sending attaches to the message it was meant for.
+            eventSource.on(event_types.MESSAGE_SENT, (messageId) => {
+                if (extensionSettings.enabled && attachQueuedRollTo(Number(messageId))) {
+                    saveChatData();
+                }
+                updateDiceDisplay();
+            });
+
+            // Rolls are per chat / per message, so refresh the display when either changes.
+            for (const evt of [event_types.CHAT_CHANGED, event_types.MESSAGE_DELETED, event_types.MESSAGE_SWIPED, event_types.MESSAGE_EDITED]) {
+                if (evt) eventSource.on(evt, () => setTimeout(() => updateDiceDisplay(), 0));
+            }
+            $(document).on('rpg:diceRollChanged', () => updateDiceDisplay());
+            $(document).on('rpg:progressionChanged', () => {
+                renderUserStats();
+                updateFabWidgets();
+                updateStripWidgets();
             });
 
             eventSource.on(event_types.MESSAGE_DELETED, () => {

@@ -8,8 +8,10 @@ import {
     pendingDiceRoll,
     setPendingDiceRoll
 } from '../../core/state.js';
-import { saveSettings } from '../../core/persistence.js';
+import { saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
+import { rollDice as rollDiceFaces } from '../mechanics/rules.js';
+import { getQueuedRoll, getActiveRoll, clearDisplayedRoll, summarizeRoll } from '../mechanics/rollState.js';
 
 /**
  * Rolls the dice and displays result.
@@ -56,62 +58,48 @@ export async function rollDice(diceModal) {
  * @returns {Promise<{total: number, rolls: Array<number>}>} The roll result
  */
 export async function executeRollCommand(command) {
-    try {
-        // Parse the dice notation (e.g., "2d20")
-        const match = command.match(/(\d+)d(\d+)/);
-        if (!match) {
-            return { total: 0, rolls: [] };
-        }
-
-        const count = parseInt(match[1]);
-        const sides = parseInt(match[2]);
-        const rolls = [];
-        let total = 0;
-
-        for (let i = 0; i < count; i++) {
-            const roll = Math.floor(Math.random() * sides) + 1;
-            rolls.push(roll);
-            total += roll;
-        }
-
-        return { total, rolls };
-    } catch (error) {
-        console.error('[RPG Companion] Error rolling dice:', error);
+    const match = command.match(/(\d+)d(\d+)/);
+    if (!match) {
         return { total: 0, rolls: [] };
     }
+    const rolls = rollDiceFaces(parseInt(match[1]), parseInt(match[2]));
+    return { total: rolls.reduce((sum, r) => sum + r, 0), rolls };
 }
 
 /**
- * Updates the dice display in the sidebar.
+ * Updates the "Last Roll" display: a roll queued for the next message, or the
+ * roll attached to the latest user message. Both are per chat.
  */
 export function updateDiceDisplay() {
-    // Hide the entire dice display if showDiceDisplay is false
     const $display = $('#rpg-dice-display');
     if (!extensionSettings.showDiceDisplay) {
         $display.hide();
         return;
-    } else {
-        $display.show();
     }
+    $display.show();
 
-    const lastRoll = extensionSettings.lastDiceRoll;
-    const label = i18n.getTranslation('template.mainPanel.lastRoll') || 'Last Roll: ';
+    const queued = getQueuedRoll();
+    const active = queued ? null : getActiveRoll();
+    const label = `${(i18n.getTranslation('template.mainPanel.lastRoll') || 'Last Roll:').trim()} `;
     const noneValue = i18n.getTranslation('global.none') || 'None';
 
-    if (lastRoll) {
-        $('#rpg-last-roll-text').text(`${label}(${lastRoll.formula}): ${lastRoll.total}`);
+    if (queued) {
+        const nextLabel = i18n.getTranslation('dice.nextMessage') || 'Next message';
+        $('#rpg-last-roll-text').text(`${nextLabel}: ${summarizeRoll(queued)}`);
+    } else if (active) {
+        $('#rpg-last-roll-text').text(label + summarizeRoll(active));
     } else {
         $('#rpg-last-roll-text').text(label + noneValue);
     }
+    $('#rpg-clear-dice').toggle(!!(queued || active));
 }
 
 /**
- * Clears the last dice roll.
- * Called when the x button is clicked.
+ * Clears the roll shown in the display (the queued one first).
  */
 export function clearDiceRoll() {
-    extensionSettings.lastDiceRoll = null;
-    saveSettings();
+    clearDisplayedRoll();
+    saveChatData();
     updateDiceDisplay();
 }
 
