@@ -445,7 +445,10 @@ Each step is usable and testable before the next one.
 
 1. **Elements.** I used the classical four (fire, water, earth, air). Would
    you rather have fire, ice and lightning (plus poison?), or both sets?
-2. **Level vs power.** With 50 CP to start and 3 CP per level, a level 5
+   
+<!-- @yeoshu: Let's have both sets. -->
+
+3. **Level vs power.** With 50 CP to start and 3 CP per level, a level 5
    character is only about 25% stronger than a level 1 one, while the EXP
    curve pays ×2.9 for an enemy 4 levels up. Options:
    - **(a)** raise CP per level to 5: level 5 ≈ +40%, level 10 ≈ ×1.9
@@ -453,8 +456,16 @@ Each step is usable and testable before the next one.
    - **(c)** leave it: level matters little, and points matter more
 
    My pick is (a).
-3. **NPC allies.** Local tactics by default, with a per-ally "I control
+
+<!-- @yeoshu: Agreed. Option (a). -->
+
+4. **NPC allies.** Local tactics by default, with a per-ally "I control
    this one" checkbox. Is that right, or should you control all allies by
    default?
-4. **Energy.** Should END map to the tracker's Energy bar, when one exists?
+
+<!-- @yeoshu: That's right. Local tactics by default. -->
+
+6. **Energy.** Should END map to the tracker's Energy bar, when one exists?
    That's my assumption here.
+
+<!-- @yeoshu: Your assumption is correct. Map END to tracker's Energy bar. We'll work on locking down an actual basis for the Energy value eventually.-->
