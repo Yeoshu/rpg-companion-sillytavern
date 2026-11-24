@@ -140,20 +140,31 @@ fifth of a level, while trash mobs far below you still give a token 1 EXP.
 EXP is awarded when the encounter ends: for every enemy on a victory, and for
 enemies brought to 0 HP otherwise. Enemies without a level count as even.
 
-### Character points
+### Character points and the character sheet
 
-Each level gives **5 CP**. Click the CP badge next to the EXP bar to spend them:
+A character is worth a number of character points (CP), and has a **budget**:
 
-- **+1 attribute costs 1 CP.** 5 attribute points make +1 on every roll with
-  that attribute, so +1 to rolls costs 5 CP, but it is broad.
-- **+1 skill level costs 2 CP.** A direct +1, but only for that skill.
+    Budget = starting pool (50) + 5 × (level − 1) + any bonus you set
 
-This follows HERO's split: characteristics are cheap per point and broad,
-skills are cheaper per +1 but narrow. Only points added in the dialog can be
-taken back before applying; attributes and skills can still be edited freely
-on the sheet.
+The badge next to the EXP bar shows the CP still unspent (red when over
+budget). Click it to open the **character sheet**, where everything that
+costs points is edited with live totals:
 
-All of these numbers are in Settings → Progression.
+- **Attributes:** 1 CP per point above 10 (points below 10 give CP back).
+  5 attribute points make +1 on every roll with that attribute, so +1 to rolls
+  costs 5 CP, but it is broad.
+- **Skills:** 2 CP per level. A direct +1, but only for that skill.
+- **Combat values** (HP, END, REC, OCV, DCV, PD, ED, SPD), **resistances**,
+  **abilities** and **items**: see `docs/COMBAT_DESIGN.md`. Abilities are made
+  in the ability builder from effect tags, with their cost shown as you build.
+
+The budget is a guide, not a lock: going over only turns the badge red.
+Characters can be saved to a library, loaded into other chats, and exported
+or imported as files from the sheet's "Saved characters" section.
+
+The progression numbers are in Settings → Progression; the starting pool, the
+Active Point guide and which attributes act as STR/DEX/CON are in Settings →
+Character Sheet.
 
 ## Not built yet
 

@@ -25,7 +25,8 @@ import { updateFabWidgets } from '../ui/mobile.js';
 import { getStatBarColors } from '../ui/theme.js';
 import { attributeRoll, formatTarget, formatModifier } from '../mechanics/rules.js';
 import { getSkills } from '../mechanics/character.js';
-import { getProgressState, setExp, openSpendPointsDialog } from '../features/experience.js';
+import { getProgressState, setExp } from '../features/experience.js';
+import { openSheetEditor } from '../ui/sheetEditor.js';
 
 function escapeAttr(text) {
     return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -201,20 +202,23 @@ function updateUserStatsData() {
 
 
 /**
- * EXP bar under the name/level row, plus a button to spend unspent character points.
+ * EXP bar under the name/level row, plus the character sheet button, which
+ * shows unspent character points (red when over budget).
  */
 function renderExpRow() {
     const { exp, next, points } = getProgressState();
     const percent = Math.min(100, Math.round((exp / next) * 100));
     const expLabel = i18n.getTranslation('progression.exp') || 'EXP';
-    const pointsTitle = i18n.getTranslation('progression.spendTitle') || 'Spend character points';
+    const pointsTitle = i18n.getTranslation('sheet.open') || 'Character sheet';
+    const cp = i18n.getTranslation('progression.cp') || 'CP';
+    const badgeText = points !== 0 ? `${points} ${cp}` : (i18n.getTranslation('sheet.short') || 'Sheet');
     return `
         <div class="rpg-exp-row">
             <div class="rpg-exp-bar" role="progressbar" aria-valuemin="0" aria-valuemax="${next}" aria-valuenow="${exp}">
                 <div class="rpg-exp-fill" style="width: ${percent}%"></div>
             </div>
             <span class="rpg-exp-text"><span class="rpg-exp-value rpg-editable" contenteditable="true" title="${i18n.getTranslation('progression.editExp') || 'Click to edit EXP'}">${exp}</span>/${next} ${expLabel}</span>
-            ${points > 0 ? `<button type="button" class="rpg-cp-badge" title="${pointsTitle}"><i class="fa-solid fa-arrow-up-right-dots"></i> ${points} ${i18n.getTranslation('progression.cp') || 'CP'}</button>` : ''}
+            <button type="button" class="rpg-cp-badge${points < 0 ? ' rpg-cp-over' : points > 0 ? ' rpg-cp-unspent' : ''}" title="${pointsTitle}"><i class="fa-solid fa-id-card"></i> ${badgeText}</button>
         </div>
     `;
 }
@@ -620,7 +624,7 @@ export function renderUserStats() {
         }
     });
 
-    $('.rpg-cp-badge').on('click', () => openSpendPointsDialog());
+    $('.rpg-cp-badge').on('click', () => openSheetEditor());
 
     // Add event listener for level editing (no upper limit)
     $('.rpg-level-value.rpg-editable').on('blur', function () {

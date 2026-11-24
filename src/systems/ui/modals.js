@@ -463,7 +463,7 @@ export function setupSettingsPopup() {
         // Reset level to 1
         extensionSettings.level = 1;
         extensionSettings.exp = 0;
-        extensionSettings.characterPoints = 0;
+        extensionSettings.combatSheet = null;
         extensionSettings.resolvedQuests = [];
 
         // Clear quests

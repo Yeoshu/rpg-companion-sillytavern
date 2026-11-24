@@ -151,6 +151,9 @@ import { parseAndStoreSpotifyUrl } from './src/systems/features/musicPlayer.js';
 import { attachQueuedRollTo, updateDiceInjection } from './src/systems/mechanics/rollState.js';
 import { getProgression } from './src/systems/features/experience.js';
 import { DEFAULT_PROGRESSION } from './src/systems/mechanics/progression.js';
+import { normalizeCombatSettings } from './src/systems/mechanics/combat/catalog.js';
+import { getCombatSettings } from './src/systems/features/sheet.js';
+import { getAttributes } from './src/systems/mechanics/character.js';
 
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
 import { openEncounterModal } from './src/systems/ui/encounterUI.js';
@@ -480,6 +483,27 @@ async function initUI() {
         extensionSettings.askAboutDroppedQuests = $(this).prop('checked');
         saveSettings();
     });
+    // Character sheet / combat tuning
+    $(document).on('change', '[data-combat], [data-combat-role]', function() {
+        const current = { ...getCombatSettings(), roles: { ...getCombatSettings().roles } };
+        if ($(this).is('[data-combat-role]')) {
+            current.roles[$(this).data('combat-role')] = $(this).val();
+        } else {
+            const value = Number($(this).val());
+            current[$(this).data('combat')] = Number.isFinite(value) ? value : undefined;
+        }
+        extensionSettings.combat = normalizeCombatSettings(current);
+        fillCombatInputs();
+        saveSettings();
+        $(document).trigger('rpg:progressionChanged');
+    });
+    $('#rpg-combat-reset').on('click', function() {
+        extensionSettings.combat = normalizeCombatSettings({});
+        fillCombatInputs();
+        saveSettings();
+        $(document).trigger('rpg:progressionChanged');
+    });
+
     $('#rpg-progression-reset').on('click', function() {
         extensionSettings.progression = { ...DEFAULT_PROGRESSION };
         fillProgressionInputs();
@@ -1111,6 +1135,7 @@ async function initUI() {
     $('#rpg-toggle-randomized-plot').prop('checked', extensionSettings.enableRandomizedPlot ?? true);
     $('#rpg-toggle-natural-plot').prop('checked', extensionSettings.enableNaturalPlot ?? true);
     fillProgressionInputs();
+    fillCombatInputs();
     $('#rpg-toggle-ask-dropped-quests').prop('checked', extensionSettings.askAboutDroppedQuests ?? true);
     $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
@@ -1250,6 +1275,23 @@ async function initUI() {
 // Event handlers removed - now imported from src/systems/integration/sillytavern.js
 // (commitTrackerData, onMessageSent, onMessageReceived, onCharacterChanged,
 //  onMessageSwiped, updatePersonaAvatar, clearExtensionPrompts)
+
+/** Shows the combat/sheet settings in use; role selects list the enabled attributes. */
+function fillCombatInputs() {
+    const values = getCombatSettings();
+    $('[data-combat]').each(function() {
+        $(this).val(values[$(this).data('combat')]);
+    });
+    const attributes = getAttributes();
+    $('[data-combat-role]').each(function() {
+        const role = $(this).data('combat-role');
+        const options = attributes.map(a => `<option value="${a.id}">${$('<div>').text(a.name).html()}</option>`);
+        if (!attributes.some(a => a.id === values.roles[role])) {
+            options.unshift(`<option value="${values.roles[role]}">${values.roles[role].toUpperCase()} (not tracked: 10)</option>`);
+        }
+        $(this).html(options.join('')).val(values.roles[role]);
+    });
+}
 
 /** Shows the progression settings actually in use (defaults filled in). */
 function fillProgressionInputs() {
