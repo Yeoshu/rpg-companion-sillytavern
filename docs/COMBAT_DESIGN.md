@@ -1,7 +1,13 @@
 # Combat overhaul: design spec
 
-Status: **agreed**; step 1 (the rules engine) is built in
-`src/systems/mechanics/combat/` with tests in `tests/combat.test.mjs`.
+Status: **agreed**. Built so far:
+
+- Step 1, the rules engine: `src/systems/mechanics/combat/`, tests in
+  `tests/combat.test.mjs`.
+- Step 2, the character sheet: `src/systems/features/sheet.js` (data, budget,
+  inventory link, library) and `src/systems/ui/sheetEditor.js` (sheet editor
+  and ability builder), opened from the CP badge in the panel.
+
 Decisions on the open questions are at the end; balance changes found by
 simulation are marked in §2, §3 and §7.
 

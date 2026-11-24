@@ -737,7 +737,7 @@ export function saveChatData() {
         skillLevels: extensionSettings.skillLevels || {},
         level: extensionSettings.level,
         exp: extensionSettings.exp || 0,
-        characterPoints: extensionSettings.characterPoints || 0,
+        combatSheet: extensionSettings.combatSheet || null,
         resolvedQuests: extensionSettings.resolvedQuests || [],
         queuedDiceRoll: queuedDiceRoll,
         quests: extensionSettings.quests,
@@ -1032,7 +1032,9 @@ export function loadChatData() {
     // Progression is per chat. Chats saved before EXP existed keep the current level.
     if (Number.isFinite(savedData?.level)) extensionSettings.level = savedData.level;
     extensionSettings.exp = Number(savedData?.exp) || 0;
-    extensionSettings.characterPoints = Number(savedData?.characterPoints) || 0;
+    // Unspent character points are computed from the sheet and the level budget
+    // (features/sheet.js); the old per-chat counter is no longer used.
+    extensionSettings.combatSheet = savedData?.combatSheet ? JSON.parse(JSON.stringify(savedData.combatSheet)) : null;
     extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
 
     // Restore quests

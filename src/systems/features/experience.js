@@ -1,24 +1,24 @@
 /**
  * Experience
  *
- * Grants EXP (from quests and encounters), resolves level-ups, and lets the
- * player spend the character points they earn on attributes and skills.
+ * Grants EXP (from quests and encounters) and resolves level-ups. Each level
+ * raises the character point budget; points are spent on the character sheet
+ * (features/sheet.js, ui/sheetEditor.js).
  * All numbers come from src/systems/mechanics/progression.js; nothing here
  * asks the model for anything.
  *
- * Level, EXP and unspent points are saved per chat (see persistence.js).
+ * Level and EXP are saved per chat (see persistence.js).
  * Anything that changes them triggers `rpg:progressionChanged` on document.
  */
 
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../../popup.js';
+import { sheetPoints } from './sheet.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
 import {
     normalizeProgression, expToNextLevel, addExp, questReward, enemyReward
 } from '../mechanics/progression.js';
-import { attributeRoll, formatTarget, formatModifier } from '../mechanics/rules.js';
-import { getAttributes, getSkills, setSkillLevel } from '../mechanics/character.js';
 
 function t(key, fallback) {
     return i18n.getTranslation(key) || fallback;
@@ -32,14 +32,14 @@ export function getProgression() {
     return normalizeProgression(extensionSettings.progression);
 }
 
-/** Current level, EXP, bar size and unspent points. */
+/** Current level, EXP, bar size and unspent character points (may be negative: over budget). */
 export function getProgressState() {
     const level = Math.max(1, Math.floor(extensionSettings.level) || 1);
     return {
         level,
         exp: Math.max(0, Math.floor(extensionSettings.exp) || 0),
         next: expToNextLevel(level, getProgression()),
-        points: Math.max(0, Math.floor(extensionSettings.characterPoints) || 0)
+        points: sheetPoints().unspent
     };
 }
 
@@ -62,7 +62,6 @@ export function grantExp(amount, source = '') {
     const result = addExp(before, amount, getProgression());
     extensionSettings.level = result.level;
     extensionSettings.exp = result.exp;
-    extensionSettings.characterPoints = result.points;
     changed();
 
     toastr.success(source ? escapeHtml(source) : '', `+${amount} ${t('progression.exp', 'EXP')}`, { timeOut: 4000 });
@@ -85,12 +84,6 @@ export function setExp(value) {
         return;
     }
     extensionSettings.exp = target;
-    changed();
-}
-
-/** Sets unspent character points directly (manual edit). */
-export function setCharacterPoints(value) {
-    extensionSettings.characterPoints = Math.max(0, Math.floor(Number(value) || 0));
     changed();
 }
 
@@ -127,110 +120,6 @@ export function encounterRewards(enemies, result) {
         return { name: String(enemy.name || '?'), level, exp: enemyReward(level, playerLevel, settings) };
     });
     return { total: rows.reduce((sum, row) => sum + row.exp, 0), enemies: rows };
-}
-
-/* ---------------------------------------------------------------------------
-   Spending character points
-   --------------------------------------------------------------------------- */
-
-/**
- * Opens the dialog to spend character points on attributes and skills.
- * Only points added in this dialog can be taken back; existing values can
- * still be edited directly on the sheet.
- */
-export async function openSpendPointsDialog() {
-    const settings = getProgression();
-    const pool = getProgressState().points;
-    const attributes = getAttributes();
-    const skills = getSkills();
-    const added = { attr: {}, skill: {} };
-    const spent = () =>
-        Object.values(added.attr).reduce((s, n) => s + n * settings.attributeCost, 0)
-        + Object.values(added.skill).reduce((s, n) => s + n * settings.skillCost, 0);
-
-    const row = (type, id, name, cost) => `
-        <div class="rpg-cp-row" data-type="${type}" data-id="${escapeHtml(id)}" data-cost="${cost}">
-            <span class="rpg-cp-name">${escapeHtml(name)}</span>
-            <span class="rpg-cp-value"></span>
-            <span class="rpg-cp-controls">
-                <button type="button" class="menu_button rpg-cp-btn" data-delta="-1" aria-label="−"><i class="fa-solid fa-minus"></i></button>
-                <button type="button" class="menu_button rpg-cp-btn" data-delta="1" aria-label="+"><i class="fa-solid fa-plus"></i></button>
-            </span>
-        </div>`;
-
-    const $dialog = $(`
-        <div class="rpg-cp-dialog">
-            <h3><i class="fa-solid fa-arrow-up-right-dots"></i> ${escapeHtml(t('progression.spendTitle', 'Spend character points'))}</h3>
-            <div class="rpg-cp-pool"></div>
-            <div class="rpg-cp-group">
-                <div class="rpg-cp-group-title">${escapeHtml(t('progression.attributes', 'Attributes'))} <small>${settings.attributeCost} ${escapeHtml(t('progression.cpEach', 'CP each'))}</small></div>
-                ${attributes.map(a => row('attr', a.id, a.name, settings.attributeCost)).join('')}
-            </div>
-            ${skills.length ? `
-            <div class="rpg-cp-group">
-                <div class="rpg-cp-group-title">${escapeHtml(t('progression.skills', 'Skills'))} <small>${settings.skillCost} ${escapeHtml(t('progression.cpEach', 'CP each'))}</small></div>
-                ${skills.map(s => row('skill', s.key, s.name, settings.skillCost)).join('')}
-            </div>` : ''}
-        </div>
-    `);
-
-    const refresh = () => {
-        const remaining = pool - spent();
-        $dialog.find('.rpg-cp-pool').html(
-            `<strong>${remaining}</strong> / ${pool} ${escapeHtml(t('progression.cpLeft', 'character points left'))}`
-        );
-        $dialog.find('.rpg-cp-row').each(function () {
-            const $row = $(this);
-            const type = $row.data('type');
-            const id = String($row.data('id'));
-            const cost = Number($row.data('cost'));
-            const extra = added[type][id] || 0;
-            let text;
-            if (type === 'attr') {
-                const base = attributes.find(a => a.id === id).value;
-                text = `${base + extra} <small>(${formatTarget(attributeRoll(base + extra))})</small>`;
-            } else {
-                const base = skills.find(s => s.key === id).level;
-                text = formatModifier(base + extra);
-            }
-            $row.toggleClass('rpg-cp-changed', extra > 0);
-            $row.find('.rpg-cp-value').html(text);
-            $row.find('[data-delta="-1"]').prop('disabled', extra <= 0);
-            $row.find('[data-delta="1"]').prop('disabled', remaining < cost);
-        });
-    };
-
-    $dialog.on('click', '.rpg-cp-btn', function () {
-        const $row = $(this).closest('.rpg-cp-row');
-        const type = $row.data('type');
-        const id = String($row.data('id'));
-        const delta = Number($(this).data('delta'));
-        const next = (added[type][id] || 0) + delta;
-        if (next < 0 || (delta > 0 && pool - spent() < Number($row.data('cost')))) return;
-        added[type][id] = next;
-        refresh();
-    });
-    refresh();
-
-    const result = await callGenericPopup($dialog, POPUP_TYPE.CONFIRM, '', {
-        okButton: t('progression.apply', 'Apply'),
-        cancelButton: t('global.cancel', 'Cancel')
-    });
-    if (result !== POPUP_RESULT.AFFIRMATIVE || spent() === 0) return false;
-
-    for (const [id, n] of Object.entries(added.attr)) {
-        if (!n) continue;
-        const current = attributes.find(a => a.id === id).value;
-        extensionSettings.classicStats[id] = current + n;
-    }
-    for (const [key, n] of Object.entries(added.skill)) {
-        if (!n) continue;
-        const skill = skills.find(s => s.key === key);
-        setSkillLevel(skill.name, skill.level + n);
-    }
-    extensionSettings.characterPoints = pool - spent();
-    changed();
-    return true;
 }
 
 /* ---------------------------------------------------------------------------

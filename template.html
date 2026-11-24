@@ -686,6 +686,43 @@
             </div>
 
             <div class="rpg-settings-group">
+                <h4 data-i18n-key="template.settingsModal.sheetTitle"><i class="fa-solid fa-id-card"
+                        aria-hidden="true"></i> Character Sheet</h4>
+                <small class="rpg-note" data-i18n-key="template.settingsModal.sheet.note">
+                    A level 1 character is built on the starting pool, plus the character points per level above. Abilities above the Active Point guide (base + per level × level) get a warning. Combat values (HP, END, defences, speed) are derived from the three attributes chosen below.
+                </small>
+                <div class="rpg-progression-grid">
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.startingPool">Starting pool (CP)</span>
+                        <input type="number" class="rpg-input" data-combat="startingPool" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.apCapBase">AP guide, base</span>
+                        <input type="number" class="rpg-input" data-combat="apCapBase" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.apCapPerLevel">AP guide, per level</span>
+                        <input type="number" class="rpg-input" data-combat="apCapPerLevel" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.roleStr">Strength attribute</span>
+                        <select class="rpg-input" data-combat-role="str"></select>
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.roleDex">Agility attribute</span>
+                        <select class="rpg-input" data-combat-role="dex"></select>
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.roleCon">Toughness attribute</span>
+                        <select class="rpg-input" data-combat-role="con"></select>
+                    </label>
+                </div>
+                <button type="button" id="rpg-combat-reset" class="menu_button">
+                    <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.settingsModal.progression.reset">Restore defaults</span>
+                </button>
+            </div>
+
+            <div class="rpg-settings-group">
                 <h4 data-i18n-key="template.settingsModal.advancedTitle"><i class="fa-solid fa-sliders"
                         aria-hidden="true"></i> Advanced</h4>
 

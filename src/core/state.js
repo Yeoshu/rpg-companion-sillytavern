@@ -259,7 +259,16 @@ export let extensionSettings = {
     lastDiceRoll: null, // Legacy: rolls now live on chat messages (mechanics/rollState.js)
     skillLevels: {}, // Per-chat skill levels, keyed by lowercase skill name
     exp: 0, // Per-chat EXP towards the next level
-    characterPoints: 0, // Per-chat unspent character points
+    combatSheet: null, // Per-chat combat sheet: bought values, resistances, abilities, items (features/sheet.js)
+    sheetLibrary: [], // Saved character sheets, reusable across chats
+    combat: { // Combat tuning (see src/systems/mechanics/combat/catalog.js DEFAULT_COMBAT)
+        startingPool: 50,
+        apCapBase: 25,
+        apCapPerLevel: 5,
+        budgetTolerance: 1.1,
+        equalSpeed: false,
+        roles: { str: 'str', dex: 'dex', con: 'con' }
+    },
     resolvedQuests: [], // Per-chat quests already completed/removed/answered (lowercase titles)
     askAboutDroppedQuests: true, // Ask whether quests the tracker AI removes were completed
     progression: { // Tuning for EXP and character points (see src/systems/mechanics/progression.js)
