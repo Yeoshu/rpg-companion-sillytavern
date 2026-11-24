@@ -102,7 +102,7 @@ export const defaultSettings = {
         sideQuestMax: 10,
         enemyBase: 5,
         enemyLevelFactor: 1.3,
-        pointsPerLevel: 3,
+        pointsPerLevel: 5,
         attributeCost: 1,
         skillCost: 2
     },

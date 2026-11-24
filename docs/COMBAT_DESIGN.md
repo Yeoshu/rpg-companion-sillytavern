@@ -1,7 +1,9 @@
 # Combat overhaul: design spec
 
-Status: **draft for review**. Nothing here is built yet. Mark up anything you
-want changed; open questions are collected at the end.
+Status: **agreed**; step 1 (the rules engine) is built in
+`src/systems/mechanics/combat/` with tests in `tests/combat.test.mjs`.
+Decisions on the open questions are at the end; balance changes found by
+simulation are marked in §2, §3 and §7.
 
 ## Goals
 
@@ -48,13 +50,13 @@ customisable, settings map each role to an attribute (defaults shown).
 
 | Value | Formula | Typical at 10 | Buy extra |
 |---|---|---|---|
-| **HP** | 10 + 2 × CON | 30 | 1 CP per 2 HP |
+| **HP** | 20 + 2 × CON | 40 | 1 CP per 2 HP |
 | **END** (Endurance) | 2 × CON | 20 | 1 CP per 2 END |
 | **REC** (Recovery) | STR/5 + CON/5 | 4 | 2 CP per +1 |
 | **OCV** (attack) | DEX/5 | 2 | 5 CP per +1 |
 | **DCV** (defence) | DEX/5 | 2 | 5 CP per +1 |
-| **PD** (physical defence) | STR/5 | 2 | 1 CP per +1 |
-| **ED** (elemental defence) | CON/5 | 2 | 1 CP per +1 |
+| **PD** (physical defence) | STR/5 | 2 | 3 CP per +1 |
+| **ED** (elemental defence) | CON/5 | 2 | 3 CP per +1 |
 | **SPD** (actions per turn) | 1 + DEX/10 (rounded down) | 2 | 10 CP per +1 |
 | **Unarmed damage** | STR/5 d6, blunt | 2d6 | through STR |
 
@@ -63,7 +65,7 @@ customisable, settings map each role to an attribute (defaults shown).
 ### Damage types and resistances
 
 - **Physical:** blunt, pierce, slash. Reduced by **PD**.
-- **Elemental:** fire, water, earth, air. Reduced by **ED**.
+- **Elemental:** fire, water, earth, air, ice, lightning, poison. Reduced by **ED**.
 
 Each stat block can list per-type modifiers:
 
@@ -105,7 +107,7 @@ Adding a type later is one entry in a list.
 
 | Effect | Fields | Base cost |
 |---|---|---|
-| **Damage** | dice (d6), flat bonus, damage type, *adds STR* (physical only: adds the user's unarmed STR dice at no cost, up to the ability's own dice, so STR can at most double it) | 5 per d6, 2 per +1 flat |
+| **Damage** | dice (d6), flat bonus, damage type, *adds STR* (physical only: adds 1d6 per 5 STR above 10, at no cost, up to the ability's own dice, so STR can at most double it) | 5 per d6, 2 per +1 flat |
 | **Heal** | dice, flat | 10 per d6, 4 per +1 flat |
 | **Shield** | amount absorbed, duration | 1 per point absorbed (× duration, below) |
 | **Apply status** | a status (§4) | cost of the status |
@@ -174,7 +176,11 @@ carries the mechanics.
 
 **Rules:**
 - Durations count the **affected character's own phases**. An over-time
-  status ticks at the start of each of them.
+  status ticks at the start of each of them. Over-time damage ignores PD/ED (it's already in) but
+  is affected by resistances and weaknesses.
+- Modifiers, shields and taunts count down at the end of each of the affected
+  character's phases. One applied during the character's own phase (a self-buff)
+  lasts through their next phase too.
 - **Stacking:** re-applying the same status refreshes its duration and keeps
   the higher potency. Different statuses stack.
 - **Resisting:** *Incapacitate* and *Taunt* allow the target a CON roll (or
@@ -195,7 +201,7 @@ carries the mechanics.
      their maximum.
    - A natural 18 always misses.
    - Area abilities roll once per target.
-2. **Damage** = dice + flat (+ STR dice if the ability adds STR).
+2. **Damage** = dice + flat (+ STR bonus dice if the ability adds STR).
 3. **× resistance or weakness** for the damage type.
 4. **− PD or ED** (halved for armour-piercing). At least 0.
 5. A **Shield** absorbs damage before HP.
@@ -282,35 +288,50 @@ segments where each combatant acts, so you can see who's coming up.
 **Active Point cap:** a warning when one ability's AP exceeds
 **25 + 5 × level** (30 at level 1: a 6d6 attack). It's a guide, not a limit.
 
-### Example level 1 build (48 / 50 CP)
+### Abilities are priced as a pool
+
+Only one ability can be used per phase, so a wide repertoire shouldn't cost
+as much as stacking power into one attack. Abilities are priced like a HERO
+Multipower: **the most expensive ability costs its full real cost; every other
+ability costs a fifth of its real cost** (rounded up). The builder shows what
+adding an ability actually costs this sheet.
+
+### Example level 1 build (50 / 50 CP)
 
 | | Cost | Effects |
 |---|---|---|
 | STR 13, DEX 15, CON 12 | 10 | |
 | Stealth +2, Athletics +1 | 6 | |
-| Twin Daggers | 13 | 2d6 slash + STR (capped at +2d6) = 4d6, OCV +1 |
-| Fire Bolt | 20 | 4d6 fire |
+| PD +1, ED +1 | 6 | |
+| Fire Bolt | 25 | 5d6 fire (the most expensive ability: full cost) |
+| Twin Daggers | 3 | 2d6 slash + STR (+1d6) = 3d6, OCV +1 (real 13, ÷5) |
 
-Derived values: HP 34, END 24, REC 5, OCV 3, DCV 3, PD 3, ED 2, SPD 2.
+Derived values: HP 44, END 24, REC 5, OCV 3, DCV 3, PD 4, ED 3, SPD 2.
 
 ### Enemies
 
 The AI gives each enemy a level and a **tier**. Their budget is the budget of
 that level × the tier's multiplier, and the tier scales their HP:
 
-| Tier | Budget | HP | Meant as |
-|---|---|---|---|
-| Minion | ×0.4 | ×0.5 | Fodder, comes in groups |
-| Standard | ×0.8 | ×1 | A fair fight in pairs |
-| Elite | ×1.2 | ×1.5 | A fair fight alone |
-| Boss | ×2 | ×3 | Fights a whole party |
+| Tier | Budget | HP | Meant as | Simulated vs the build above |
+|---|---|---|---|---|
+| Minion | ×0.4 | ×0.5 | Fodder, comes in groups | three: ~55% win |
+| Standard | ×0.45 | ×1 | A fair fight in pairs | one: ~95%, two: ~35% |
+| Elite | ×0.6 | ×1.5 | A fair fight alone | ~50% |
+| Boss | ×0.8 | ×2 | Fights a whole party | ~10% solo |
 
-The EXP reward also gets the tier's HP multiplier (minion ×0.5 … boss ×3).
+The multipliers are below 1 because enemies spend everything on combat,
+while a player character also buys skills and versatility. They were tuned
+by simulating thousands of fights with the engine; fights last 5–8 player
+phases. Power rises steeply with points, so a few points matter.
+
+The EXP reward also gets the tier's HP multiplier (minion ×0.5 … boss ×2).
 
 **Checking the AI's stat blocks:**
 - The extension computes the points of every stat block the AI writes.
-- Over budget by more than 25%: damage dice and bought values are scaled
-  down, and the enemy is marked "adjusted".
+- Over budget by more than 10%: the most expensive parts (damage dice,
+  bought values, attributes) are cut step by step, and the enemy is marked
+  "adjusted".
 - Invalid tags are dropped.
 - You see all of it in the pre-fight preview (§9).
 
@@ -441,31 +462,13 @@ Each step is usable and testable before the next one.
 
 ---
 
-## Open questions
+## Decisions
 
-1. **Elements.** I used the classical four (fire, water, earth, air). Would
-   you rather have fire, ice and lightning (plus poison?), or both sets?
-   
-<!-- @yeoshu: Let's have both sets. -->
-
-3. **Level vs power.** With 50 CP to start and 3 CP per level, a level 5
-   character is only about 25% stronger than a level 1 one, while the EXP
-   curve pays ×2.9 for an enemy 4 levels up. Options:
-   - **(a)** raise CP per level to 5: level 5 ≈ +40%, level 10 ≈ ×1.9
-   - **(b)** lower the starting pool to 35
-   - **(c)** leave it: level matters little, and points matter more
-
-   My pick is (a).
-
-<!-- @yeoshu: Agreed. Option (a). -->
-
-4. **NPC allies.** Local tactics by default, with a per-ally "I control
-   this one" checkbox. Is that right, or should you control all allies by
-   default?
-
-<!-- @yeoshu: That's right. Local tactics by default. -->
-
-6. **Energy.** Should END map to the tracker's Energy bar, when one exists?
-   That's my assumption here.
-
-<!-- @yeoshu: Your assumption is correct. Map END to tracker's Energy bar. We'll work on locking down an actual basis for the Energy value eventually.-->
+1. **Elements:** both sets: fire, water, earth, air, ice, lightning, plus
+   poison.
+2. **Level vs power:** option (a). CP per level is now 5 by default, so
+   level 5 is about +40% over level 1, and level 10 about ×1.9.
+3. **NPC allies:** local tactics by default, with a per-ally "I control this
+   one" checkbox.
+4. **Energy:** END maps to the tracker's Energy bar when one exists. A real
+   basis for the Energy value comes later.

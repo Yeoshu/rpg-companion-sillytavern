@@ -10,7 +10,7 @@
  * Extension settings - persisted to SillyTavern settings
  */
 export let extensionSettings = {
-    settingsVersion: 5, // Version number for settings migrations
+    settingsVersion: 6, // Version number for settings migrations
     enabled: true,
     autoUpdate: false,
     updateDepth: 4, // How many messages to include in the context
@@ -270,7 +270,7 @@ export let extensionSettings = {
         sideQuestMax: 10,
         enemyBase: 5,
         enemyLevelFactor: 1.3,
-        pointsPerLevel: 3,
+        pointsPerLevel: 5,
         attributeCost: 1,
         skillCost: 2
     },

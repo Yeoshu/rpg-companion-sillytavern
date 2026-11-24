@@ -34,10 +34,10 @@ test('enemy reward scales with the level difference', () => {
 
 test('addExp levels up, carries leftover and grants points', () => {
     assert.deepEqual(addExp({ level: 1, exp: 90, points: 0 }, 25, S),
-        { level: 2, exp: 15, points: 3, levelsGained: 1, pointsGained: 3 });
+        { level: 2, exp: 15, points: 5, levelsGained: 1, pointsGained: 5 });
     // 100 (lv1) + 200 (lv2) = 300 → level 3 with 10 left
     assert.deepEqual(addExp({ level: 1, exp: 0, points: 1 }, 310, S),
-        { level: 3, exp: 10, points: 7, levelsGained: 2, pointsGained: 6 });
+        { level: 3, exp: 10, points: 11, levelsGained: 2, pointsGained: 10 });
     assert.equal(addExp({ level: 1, exp: 0, points: 0 }, 50, S).levelsGained, 0);
 });
 
