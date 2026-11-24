@@ -25,7 +25,7 @@ import { validateStoredInventory, cleanItemString } from '../utils/security.js';
 import { migrateToV3JSON } from '../utils/jsonMigration.js';
 
 const extensionName = 'third-party/rpg-companion-sillytavern';
-const CURRENT_SETTINGS_VERSION = 5;
+const CURRENT_SETTINGS_VERSION = 6;
 
 const DEFAULT_USER_STATS = {
     health: 100,
@@ -623,6 +623,16 @@ export function loadSettings() {
                 if (extensionSettings.statBarColorLowOpacity === undefined) extensionSettings.statBarColorLowOpacity = 100;
                 if (extensionSettings.statBarColorHighOpacity === undefined) extensionSettings.statBarColorHighOpacity = 100;
                 extensionSettings.settingsVersion = 5;
+                settingsChanged = true;
+            }
+
+            // Migration to version 6: character points per level default 3 -> 5
+            // (combat overhaul budget). Only an untouched old default is changed.
+            if (currentVersion < 6) {
+                if (extensionSettings.progression && extensionSettings.progression.pointsPerLevel === 3) {
+                    extensionSettings.progression.pointsPerLevel = 5;
+                }
+                extensionSettings.settingsVersion = 6;
                 settingsChanged = true;
             }
 

@@ -142,7 +142,7 @@ enemies brought to 0 HP otherwise. Enemies without a level count as even.
 
 ### Character points
 
-Each level gives **3 CP**. Click the CP badge next to the EXP bar to spend them:
+Each level gives **5 CP**. Click the CP badge next to the EXP bar to spend them:
 
 - **+1 attribute costs 1 CP.** 5 attribute points make +1 on every roll with
   that attribute, so +1 to rolls costs 5 CP, but it is broad.

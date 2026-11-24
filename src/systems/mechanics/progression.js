@@ -26,7 +26,7 @@ export const DEFAULT_PROGRESSION = Object.freeze({
      */
     enemyLevelFactor: 1.3,
     /** Character points gained per level. */
-    pointsPerLevel: 3,
+    pointsPerLevel: 5,
     /** Cost in character points of +1 to an attribute. */
     attributeCost: 1,
     /** Cost in character points of +1 to a skill level. */
