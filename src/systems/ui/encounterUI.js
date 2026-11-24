@@ -1,6 +1,15 @@
 /**
- * Encounter UI Module
- * Manages the combat encounter modal window and interactions
+ * Encounter window.
+ *
+ * The fight runs on the local combat engine (src/systems/mechanics/combat/):
+ * every roll, every point of damage, turn order and the end of the fight are
+ * decided here. The AI is asked once to set the fight up (stat blocks for
+ * allies and enemies) and once at the end for the summary posted to the chat.
+ * See docs/COMBAT_DESIGN.md §8 and §9.
+ *
+ * Flow: narrative style dialog → set-up call → pre-fight preview (edit,
+ * regenerate, choose which allies you control) → combat → result, EXP and
+ * summary.
  */
 
 import { getContext } from '../../../../../../extensions.js';
@@ -8,6 +17,7 @@ import { chat, saveChatDebounced, characters, this_chid, user_avatar } from '../
 import { safeGenerateRaw } from '../../utils/responseExtractor.js';
 import { selected_group, getGroupMembers, groups } from '../../../../../../group-chats.js';
 import { executeSlashCommandsOnChatInput } from '../../../../../../../scripts/slash-commands.js';
+import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../../popup.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings } from '../../core/persistence.js';
 import { encounterRewards, grantExp } from '../features/experience.js';
@@ -17,131 +27,681 @@ import {
     currentEncounter,
     updateCurrentEncounter,
     resetEncounter,
-    addCombatMessage,
-    addEncounterLogEntry,
     saveEncounterLog
 } from '../features/encounterState.js';
 import {
     buildEncounterInitPrompt,
-    buildCombatActionPrompt,
     buildCombatSummaryPrompt,
     parseEncounterJSON
 } from '../generation/encounterPrompts.js';
+import { normalizeProgression } from '../mechanics/progression.js';
+import { TIERS, normalizeStatBlock } from '../mechanics/combat/catalog.js';
+import { deriveValues, statBlockPoints, tierBudget } from '../mechanics/combat/costs.js';
+import { describeAbility, describeStatBlock } from '../mechanics/combat/describe.js';
+import { buildRoster } from '../mechanics/combat/roster.js';
+import {
+    act, advance, availableActions, conclude, createCombat, describeStatus, effective, getCombatant, hitChance,
+    isActive, upcomingPhases, validTargets
+} from '../mechanics/combat/engine.js';
+import { chooseAction } from '../mechanics/combat/tactics.js';
+import { getCombatSettings, playerCombatBlock, trackerFraction } from '../features/sheet.js';
 
-/**
- * EncounterModal class
- * Manages the combat encounter UI
- */
-/**
- * Copies enemy levels from the previous combat state onto an updated one
- * (matched by name, then by position). Enemies without a known level are
- * treated as an even match when EXP is awarded.
- */
-function keepEnemyLevels(previous, next) {
-    const before = previous?.enemies || [];
-    (next?.enemies || []).forEach((enemy, index) => {
-        if (!enemy || Number(enemy.level) > 0) return;
-        const match = before.find(e => e?.name === enemy.name) || before[index];
-        if (match && Number(match.level) > 0) enemy.level = match.level;
-    });
+function t(key, fallback) {
+    return i18n.getTranslation(key) || fallback;
 }
+
+function esc(text) {
+    return String(text ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+}
+
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const cap = s => String(s).charAt(0).toUpperCase() + String(s).slice(1);
+const SINGLE_TARGETS = ['one-enemy', 'one-ally'];
 
 export class EncounterModal {
     constructor() {
         this.modal = null;
-        this.isInitializing = false;
-        this.isProcessing = false;
-        this.lastRequest = null; // Store last request for regeneration
+        this.busy = false;
+        this.running = false;
+        this.ended = false;
+        this.closed = false;
+        this.roster = null;
+        this.player = null;
+        this.state = null;
+        this.selecting = null;
+        this.controlled = new Set();
+        this.lastRequest = null;
+        /** Pause between AI-controlled actions, so the fight can be followed. */
+        this.aiDelay = 600;
     }
 
-    /**
-     * Opens the encounter modal and initializes combat
-     */
+    /** Opens the window: narrative style first, then the set-up call. */
     async open() {
-        if (this.isInitializing) return;
-
-        // Always show configuration modal (it will pre-populate with saved values if they exist)
+        if (this.busy) return;
         const configured = await this.showNarrativeConfigModal();
-        if (!configured) {
-            // User cancelled
-            return;
-        }
-
-        // Proceed with encounter initialization
+        if (!configured) return;
         await this.initialize();
     }
 
-    /**
-     * Initializes the encounter
-     */
     async initialize() {
-        if (this.isInitializing) return;
-
-        this.isInitializing = true;
+        if (this.busy) return;
+        this.roster = null;
+        this.state = null;
+        this.selecting = null;
+        this.controlled = new Set();
+        this.ended = false;
+        this.closed = false;
         this._expAwarded = false;
+        resetEncounter();
+        if (!this.modal) this.createModal();
+        this.modal.classList.add('is-open');
+        this.modal.setAttribute('data-environment', 'default');
+        this.modal.setAttribute('data-atmosphere', 'default');
+        await this.requestSetup();
+    }
 
+    /* -----------------------------------------------------------------------
+       Set-up
+       ----------------------------------------------------------------------- */
+
+    async requestSetup() {
+        if (this.busy) return;
+        this.busy = true;
+        this.lastRequest = { type: 'setup' };
+        this.showLoadingState(t('encounter.ui.settingUp', 'Setting up the fight...'));
         try {
-            // Create modal if it doesn't exist
-            if (!this.modal) {
-                this.createModal();
-            }
-
-            // Show loading state
-            this.showLoadingState(i18n.getTranslation('encounter.ui.initializingCombatEncounter') || 'Initializing combat encounter...');
-
-            // Open the modal
-            this.modal.classList.add('is-open');
-
-            // Generate initial combat state
-            const initPrompt = await buildEncounterInitPrompt();
-
-            // Store request for potential regeneration
-            this.lastRequest = { type: 'init', prompt: initPrompt };
-
-            const response = await safeGenerateRaw({
-                prompt: initPrompt,
-                quietToLoud: false
+            const settings = getCombatSettings();
+            const progression = normalizeProgression(extensionSettings.progression);
+            const player = playerCombatBlock();
+            const level = player.level;
+            const budgets = Object.fromEntries(Object.keys(TIERS).map(tier => [tier, tierBudget(level, tier, progression.pointsPerLevel, settings)]));
+            const prompt = await buildEncounterInitPrompt({
+                playerSheet: describeStatBlock(player, deriveValues(player, settings)),
+                level,
+                budgets,
+                perLevel: Math.max(1, Math.round(progression.pointsPerLevel * TIERS.standard.budget))
             });
-
+            const response = await safeGenerateRaw({ prompt, quietToLoud: false });
+            if (this.closed) return;
             if (!response) {
-                this.showErrorWithRegenerate(i18n.getTranslation('encounter.ui.error.noResponse') || 'No response received from AI. The model may be unavailable.');
+                this.showErrorWithRegenerate(t('encounter.ui.error.noResponse', 'No response received from AI. The model may be unavailable.'));
                 return;
             }
-
-            // Parse the combat stats
-            const combatData = parseEncounterJSON(response);
-
-            if (!combatData || !combatData.party || !combatData.enemies) {
-                this.showErrorWithRegenerate(i18n.getTranslation('encounter.ui.error.invalidJsonFormat') || 'Invalid JSON format detected. The AI returned malformed data. Ensure the Max Response Length is set to at least 2048 tokens, otherwise the model might run out of tokens and produce unfinished structures.');
-                return;
-            }
-
-            // Update encounter state
-            updateCurrentEncounter({
-                active: true,
-                initialized: true,
-                combatStats: combatData
+            const raw = parseEncounterJSON(response);
+            const roster = raw && buildRoster(raw, {
+                playerName: player.name,
+                pointsPerLevel: progression.pointsPerLevel,
+                settings,
+                skillCost: progression.skillCost,
+                attributeCost: progression.attributeCost
             });
-
-            // Add to combat history
-            addCombatMessage('system', 'Combat initialized');
-            addCombatMessage('assistant', JSON.stringify(combatData));
-
-            // Apply visual styling from styleNotes
-            if (combatData.styleNotes) {
-                this.applyEnvironmentStyling(combatData.styleNotes);
+            if (!roster || !roster.enemies.length) {
+                this.showErrorWithRegenerate(t('encounter.ui.error.noEnemies', 'The AI did not return any usable enemies. Ensure the Max Response Length is at least 2048 tokens, otherwise the reply may be cut off.'));
+                return;
             }
-
-            // Render the combat UI
-            this.renderCombatUI(combatData);
-
+            this.player = player;
+            this.roster = roster;
+            updateCurrentEncounter({ active: true, initialized: true });
+            if (roster.styleNotes) this.applyEnvironmentStyling(roster.styleNotes);
+            this.showPreview();
         } catch (error) {
-            console.error('[RPG Companion] Error initializing encounter:', error);
-            this.showErrorWithRegenerate(`${i18n.getTranslation('encounter.ui.error.failedToInitialize') || 'Failed to initialize combat:'} ${error.message}`);
+            console.error('[RPG Companion] Encounter set-up failed:', error);
+            this.showErrorWithRegenerate(`${t('encounter.ui.error.failedToInitialize', 'Failed to initialize combat:')} ${error.message}`);
         } finally {
-            this.isInitializing = false;
+            this.busy = false;
         }
     }
+
+    async regenerateLastRequest() {
+        if (this.lastRequest?.type === 'setup') await this.requestSetup();
+    }
+
+    /** Pre-fight preview: every combatant's stat block, with edit and regenerate. */
+    showPreview() {
+        const main = this.showMain();
+        const settings = getCombatSettings();
+        const card = (block, kind) => {
+            const d = deriveValues(block, settings);
+            const isPlayer = kind === 'player';
+            const over = block.points !== undefined && block.budget !== undefined;
+            return `
+                <div class="rpg-combat-preview-card" data-name="${esc(block.name)}" data-kind="${kind}">
+                    <div class="rpg-combat-preview-head">
+                        ${this.portrait(block, isPlayer)}
+                        <div class="rpg-combat-preview-title">
+                            <strong>${esc(block.name)}</strong>
+                            <span class="rpg-combat-chips">
+                                <span class="rpg-combat-chip">${esc(t('encounter.ui.levelShort', 'Lv'))} ${block.level}</span>
+                                ${isPlayer ? `<span class="rpg-combat-chip">${esc(t('encounter.ui.you', 'You'))}</span>` : `<span class="rpg-combat-chip rpg-combat-tier-${block.tier}">${esc(TIERS[block.tier]?.label || block.tier)}</span>`}
+                                ${over ? `<span class="rpg-combat-chip" title="${esc(t('encounter.ui.pointsHint', 'Points / budget for this level and tier'))}">${block.points} / ${block.budget} pts</span>` : ''}
+                                ${block.adjusted ? `<span class="rpg-combat-chip rpg-combat-chip-warn" title="${esc(t('encounter.ui.adjustedHint', 'Was over budget and has been scaled down'))}">${esc(t('encounter.ui.adjusted', 'adjusted'))}</span>` : ''}
+                            </span>
+                        </div>
+                        ${isPlayer ? '' : `<button type="button" class="rpg-combat-icon-btn" data-preview="edit" title="${esc(t('encounter.ui.editStatBlock', 'Edit stat block'))}"><i class="fa-solid fa-pen"></i></button>`}
+                    </div>
+                    ${block.description ? `<div class="rpg-combat-preview-desc">${esc(block.description)}</div>` : ''}
+                    <div class="rpg-combat-preview-stats">HP ${d.maxHp} · END ${d.maxEnd} · SPD ${d.spd} · OCV ${d.ocv} · DCV ${d.dcv} · PD ${d.pd} · ED ${d.ed}</div>
+                    <div class="rpg-combat-preview-stats rpg-combat-dim">${Object.entries(block.attributes).map(([k, v]) => `${k.toUpperCase()} ${v}`).join(' · ')}</div>
+                    ${Object.keys(block.resistances || {}).length ? `<div class="rpg-combat-preview-stats rpg-combat-dim">${Object.entries(block.resistances).map(([k, v]) => `${esc(cap(v))}: ${esc(k)}`).join(' · ')}</div>` : ''}
+                    <ul class="rpg-combat-preview-abilities">
+                        ${block.abilities.map(a => `<li><strong>${esc(a.name)}</strong>: ${esc(describeAbility(a))}</li>`).join('')}
+                        ${(block.items || []).map(a => `<li><strong>${esc(a.name)}</strong> ×${a.quantity ?? 0}: ${esc(describeAbility(a))}</li>`).join('')}
+                    </ul>
+                    ${kind === 'ally' ? `
+                        <label class="checkbox_label rpg-combat-control">
+                            <input type="checkbox" data-preview="control" ${this.controlled.has(block.name) ? 'checked' : ''}>
+                            <span>${esc(t('encounter.ui.iControl', 'I choose their actions'))}</span>
+                        </label>` : ''}
+                </div>`;
+        };
+
+        main.innerHTML = `
+            <div class="rpg-combat-preview">
+                ${this.roster.environment ? `<div class="rpg-encounter-environment"><i class="fa-solid fa-mountain"></i> ${esc(this.roster.environment)}</div>` : ''}
+                <h3 class="rpg-combat-heading"><i class="fa-solid fa-users"></i> ${esc(t('encounter.ui.partyTitle', 'Party'))}</h3>
+                <div class="rpg-combat-preview-grid">
+                    ${card(this.player, 'player')}
+                    ${this.roster.party.map(b => card(b, 'ally')).join('')}
+                </div>
+                <h3 class="rpg-combat-heading"><i class="fa-solid fa-skull"></i> ${esc(t('encounter.ui.enemiesTitle', 'Enemies'))}</h3>
+                <div class="rpg-combat-preview-grid">
+                    ${this.roster.enemies.map(b => card(b, 'enemy')).join('')}
+                </div>
+                <div class="rpg-combat-preview-actions">
+                    <button type="button" class="rpg-btn rpg-btn-secondary" data-preview="regenerate"><i class="fa-solid fa-rotate-right"></i> ${esc(t('encounter.ui.regenerateEnemies', 'Regenerate'))}</button>
+                    <button type="button" class="rpg-btn rpg-btn-primary" data-preview="start"><i class="fa-solid fa-swords"></i> ${esc(t('encounter.ui.startFight', 'Start the fight'))}</button>
+                </div>
+            </div>`;
+
+        main.querySelector('[data-preview="start"]').addEventListener('click', () => this.startFight());
+        main.querySelector('[data-preview="regenerate"]').addEventListener('click', () => this.requestSetup());
+        main.querySelectorAll('[data-preview="control"]').forEach(box => box.addEventListener('change', () => {
+            const name = box.closest('.rpg-combat-preview-card').dataset.name;
+            if (box.checked) this.controlled.add(name);
+            else this.controlled.delete(name);
+        }));
+        main.querySelectorAll('[data-preview="edit"]').forEach(btn => btn.addEventListener('click', () => {
+            const cardEl = btn.closest('.rpg-combat-preview-card');
+            this.editStatBlock(cardEl.dataset.kind === 'ally' ? 'party' : 'enemies', cardEl.dataset.name);
+        }));
+    }
+
+    /** Edits one stat block as JSON. Your edits are not scaled to budget. */
+    async editStatBlock(list, name) {
+        const blocks = this.roster[list];
+        const index = blocks.findIndex(b => b.name === name);
+        if (index < 0) return;
+        const { budget, points, adjusted, ...plain } = blocks[index];
+        const $editor = $(`
+            <div class="rpg-combat-json-editor">
+                <h3>${esc(name)}</h3>
+                <small>${esc(t('encounter.ui.editHint', 'The stat block as JSON (see docs/COMBAT_DESIGN.md §10). Your edits are kept as they are, without budget scaling.'))}</small>
+                <textarea class="text_pole" rows="18" spellcheck="false"></textarea>
+            </div>`);
+        $editor.find('textarea').val(JSON.stringify(plain, null, 2));
+        const result = await callGenericPopup($editor, POPUP_TYPE.CONFIRM, '', {
+            okButton: t('sheet.save', 'Save'),
+            cancelButton: t('global.cancel', 'Cancel'),
+            wide: true,
+            allowVerticalScrolling: true
+        });
+        if (result !== POPUP_RESULT.AFFIRMATIVE) return;
+        let block;
+        try {
+            block = normalizeStatBlock(JSON.parse(String($editor.find('textarea').val())));
+        } catch (error) {
+            toastr.error(esc(error.message), t('encounter.ui.invalidJson', 'That is not valid JSON'));
+            return;
+        }
+        if (!block) {
+            toastr.error(t('encounter.ui.invalidStatBlock', 'A stat block needs at least a name.'));
+            return;
+        }
+        const progression = normalizeProgression(extensionSettings.progression);
+        block.budget = tierBudget(block.level, block.tier, progression.pointsPerLevel, getCombatSettings());
+        block.points = statBlockPoints(block, { skillCost: progression.skillCost, attributeCost: progression.attributeCost }).total;
+        if (this.controlled.has(name) && block.name !== name) {
+            this.controlled.delete(name);
+            this.controlled.add(block.name);
+        }
+        blocks[index] = block;
+        this.showPreview();
+    }
+
+    /* -----------------------------------------------------------------------
+       The fight
+       ----------------------------------------------------------------------- */
+
+    startFight() {
+        const settings = getCombatSettings();
+        const d = deriveValues(this.player, settings);
+        const health = trackerFraction('health');
+        const energy = trackerFraction('energy');
+        const participants = [
+            {
+                block: this.player,
+                side: 'party',
+                isPlayer: true,
+                hp: health === null ? undefined : Math.max(1, Math.round(d.maxHp * health)),
+                end: energy === null ? undefined : Math.round(d.maxEnd * energy)
+            },
+            ...this.roster.party.map(block => ({ block, side: 'party', controlled: this.controlled.has(block.name) ? 'player' : 'ai' })),
+            ...this.roster.enemies.map(block => ({ block, side: 'enemies' }))
+        ];
+        this.state = createCombat(participants, { settings });
+        this.selecting = null;
+        this.renderBattle();
+        this.run();
+    }
+
+    /** Runs phases until it's a player-controlled combatant's turn or the fight ends. */
+    async run() {
+        if (this.running || !this.state) return;
+        this.running = true;
+        try {
+            while (!this.state.over && !this.closed) {
+                const id = advance(this.state);
+                if (!id) break;
+                const c = getCombatant(this.state, id);
+                this.renderBattle();
+                if (c.controlled === 'player') return;
+                if (this.aiDelay) await sleep(this.aiDelay);
+                if (this.closed || this.state.over) break;
+                act(this.state, chooseAction(this.state, id));
+                this.renderBattle();
+            }
+        } finally {
+            this.running = false;
+        }
+        if (this.state?.over && !this.closed) await this.endCombat(this.state.result);
+    }
+
+    /** The current player-controlled combatant takes an action. */
+    playerAction(action) {
+        const current = this.state && getCombatant(this.state, this.state.current);
+        if (!current || current.controlled !== 'player' || this.running) return;
+        this.selecting = null;
+        act(this.state, action);
+        this.renderBattle();
+        this.run();
+    }
+
+    /** Ability or item clicked: act now, or pick a target first. */
+    chooseAbility(kind, id) {
+        const current = getCombatant(this.state, this.state.current);
+        const { abilities, items } = availableActions(this.state, current.id);
+        const option = (kind === 'item' ? items : abilities).find(o => o.ability.id === id);
+        if (!option || !option.usable) return;
+        const ability = option.ability;
+        const type = kind === 'item' ? 'item' : 'ability';
+        const key = kind === 'item' ? 'itemId' : 'abilityId';
+        const targets = validTargets(this.state, current.id, ability);
+        if (!SINGLE_TARGETS.includes(ability.target) || (ability.target === 'one-ally' && targets.length === 1)) {
+            this.playerAction({ type, [key]: id, targetId: targets[0] });
+            return;
+        }
+        this.selecting = { type, key, id, ability, targets };
+        this.renderBattle();
+    }
+
+    renderBattle() {
+        if (!this.state || this.ended) return;
+        const main = this.showMain();
+        const state = this.state;
+        const current = getCombatant(state, state.current);
+        const playerTurn = current && current.controlled === 'player' && !state.over;
+        const logEl = main.querySelector('.rpg-combat-log');
+        const atBottom = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+
+        const side = name => state.combatants.filter(c => c.side === name);
+        main.innerHTML = `
+            <div class="rpg-combat">
+                ${this.roster.environment ? `<div class="rpg-encounter-environment"><i class="fa-solid fa-mountain"></i> ${esc(this.roster.environment)}</div>` : ''}
+                ${this.renderTimeline()}
+                <h3 class="rpg-combat-heading"><i class="fa-solid fa-skull"></i> ${esc(t('encounter.ui.enemiesTitle', 'Enemies'))}</h3>
+                <div class="rpg-combat-grid">${side('enemies').map(c => this.renderCard(c)).join('')}</div>
+                <h3 class="rpg-combat-heading"><i class="fa-solid fa-users"></i> ${esc(t('encounter.ui.partyTitle', 'Party'))}</h3>
+                <div class="rpg-combat-grid">${side('party').map(c => this.renderCard(c)).join('')}</div>
+                ${playerTurn ? this.renderActionBar(current) : `<div class="rpg-combat-waiting">${current ? `<i class="fa-solid fa-hourglass-half"></i> ${esc(current.name)}…` : ''}</div>`}
+                <h3 class="rpg-combat-heading"><i class="fa-solid fa-scroll"></i> ${esc(t('encounter.ui.combatLog', 'Combat Log'))}</h3>
+                <div class="rpg-combat-log">${this.renderLog()}</div>
+            </div>`;
+
+        const log = main.querySelector('.rpg-combat-log');
+        if (atBottom) log.scrollTop = log.scrollHeight;
+
+        main.querySelectorAll('[data-combat-ability]').forEach(btn => btn.addEventListener('click', () => this.chooseAbility('ability', btn.dataset.combatAbility)));
+        main.querySelectorAll('[data-combat-item]').forEach(btn => btn.addEventListener('click', () => this.chooseAbility('item', btn.dataset.combatItem)));
+        main.querySelectorAll('[data-combat-basic]').forEach(btn => btn.addEventListener('click', () => this.playerAction({ type: btn.dataset.combatBasic })));
+        main.querySelector('[data-combat-cancel]')?.addEventListener('click', () => { this.selecting = null; this.renderBattle(); });
+        main.querySelectorAll('.rpg-combat-card.is-target').forEach(cardEl => cardEl.addEventListener('click', () => {
+            const s = this.selecting;
+            this.playerAction({ type: s.type, [s.key]: s.id, targetId: cardEl.dataset.id });
+        }));
+    }
+
+    renderTimeline() {
+        // The combatant acting now, then who comes next.
+        const now = this.state.current ? [{ turn: this.state.turn, segment: this.state.segment, id: this.state.current }] : [];
+        const phases = [...now, ...upcomingPhases(this.state, 12 - now.length)];
+        return `
+            <div class="rpg-combat-timeline" title="${esc(t('encounter.ui.timelineHint', 'Who acts next: turn.segment of the 12-segment turn'))}">
+                ${phases.map((p, i) => {
+                    const c = getCombatant(this.state, p.id);
+                    return `<span class="rpg-combat-tick rpg-combat-${c.side}${i === 0 && this.state.current === p.id ? ' is-current' : ''}">
+                        <small>${p.turn}.${p.segment}</small>${esc(c.name.length > 12 ? `${c.name.slice(0, 11)}…` : c.name)}</span>`;
+                }).join('')}
+            </div>`;
+    }
+
+    renderCard(c) {
+        const state = this.state;
+        const eff = effective(state, c);
+        const hp = Math.round((c.hp / Math.max(1, c.maxHp)) * 100);
+        const end = Math.round((c.end / Math.max(1, c.maxEnd)) * 100);
+        const s = this.selecting;
+        const target = s && s.targets.includes(c.id);
+        const chance = target ? Math.round(hitChance(state, state.current, s.ability, c.id) * 100) : null;
+        const classes = [
+            'rpg-combat-card',
+            `rpg-combat-${c.side}`,
+            state.current === c.id ? 'is-current' : '',
+            !isActive(c) ? 'is-out' : '',
+            target ? 'is-target' : ''
+        ].filter(Boolean).join(' ');
+        const statusChips = c.statuses.map(st => `<span class="rpg-combat-status" title="${esc(describeStatus(st))}">${esc(st.name)} ${st.remaining}</span>`).join('');
+        return `
+            <div class="${classes}" data-id="${c.id}">
+                ${this.portrait(c.block, c.isPlayer)}
+                <div class="rpg-combat-card-body">
+                    <div class="rpg-combat-card-name">
+                        <strong>${esc(c.name)}</strong>
+                        <span class="rpg-combat-chip">${esc(t('encounter.ui.levelShort', 'Lv'))} ${c.block.level}</span>
+                        ${c.side === 'enemies' && c.block.tier !== 'standard' ? `<span class="rpg-combat-chip rpg-combat-tier-${c.block.tier}">${esc(TIERS[c.block.tier]?.label || '')}</span>` : ''}
+                        ${c.fled ? `<span class="rpg-combat-chip">${esc(t('encounter.ui.fled', 'fled'))}</span>` : ''}
+                    </div>
+                    <div class="rpg-combat-bar rpg-combat-hp" title="HP"><div style="width:${hp}%"></div><span>${c.hp}/${c.maxHp} HP</span></div>
+                    <div class="rpg-combat-bar rpg-combat-end" title="END"><div style="width:${end}%"></div><span>${c.end}/${c.maxEnd} END</span></div>
+                    <div class="rpg-combat-card-stats">SPD ${eff.spd} · DCV ${eff.dcv}${c.dodging ? '+3' : ''} · PD ${eff.pd} · ED ${eff.ed}</div>
+                    ${statusChips ? `<div class="rpg-combat-statuses">${statusChips}</div>` : ''}
+                </div>
+                ${chance !== null ? `<span class="rpg-combat-chance">${chance}%</span>` : ''}
+            </div>`;
+    }
+
+    renderActionBar(current) {
+        const state = this.state;
+        const s = this.selecting;
+        const header = `
+            <div class="rpg-combat-actions-head">
+                <strong>${esc(current.name)}</strong>
+                <span class="rpg-combat-dim">${esc(t('encounter.ui.turnSegment', 'Turn {turn}, segment {segment}').replace('{turn}', state.turn).replace('{segment}', state.segment))} · END ${current.end}/${current.maxEnd}</span>
+            </div>`;
+        if (s) {
+            return `
+                <div class="rpg-combat-actions">
+                    ${header}
+                    <div class="rpg-combat-selecting">
+                        <span><i class="fa-solid fa-crosshairs"></i> ${esc(t('encounter.ui.chooseTarget', 'Choose a target for {name}').replace('{name}', s.ability.name))}</span>
+                        <button type="button" class="rpg-btn rpg-btn-secondary" data-combat-cancel><i class="fa-solid fa-xmark"></i> ${esc(t('global.cancel', 'Cancel'))}</button>
+                    </div>
+                </div>`;
+        }
+        const { abilities, items } = availableActions(state, current.id);
+        const abilityButton = o => {
+            const notes = [];
+            if (o.end) notes.push(`${o.end} END`);
+            if (o.charges !== undefined) notes.push(`${o.charges} ${esc(t('encounter.ui.left', 'left'))}`);
+            return `<button type="button" class="rpg-combat-action${o.end > current.end ? ' is-strain' : ''}" data-combat-ability="${esc(o.ability.id)}" ${o.usable ? '' : 'disabled'} title="${esc(describeAbility(o.ability))}${o.end > current.end ? esc(` (${t('encounter.ui.strainHint', 'not enough END: the rest is paid in HP')})`) : ''}">
+                <span>${esc(o.ability.name)}</span>${notes.length ? `<small>${notes.join(' · ')}</small>` : ''}</button>`;
+        };
+        const itemButton = o => `
+            <button type="button" class="rpg-combat-action" data-combat-item="${esc(o.ability.id)}" ${o.usable ? '' : 'disabled'} title="${esc(describeAbility(o.ability))}">
+                <span>${esc(o.ability.name)}</span><small>×${o.quantity}</small></button>`;
+        const basic = (type, icon, label, hint) => `
+            <button type="button" class="rpg-combat-action rpg-combat-basic" data-combat-basic="${type}" title="${esc(hint)}"><span><i class="fa-solid ${icon}"></i> ${esc(label)}</span></button>`;
+        return `
+            <div class="rpg-combat-actions">
+                ${header}
+                <div class="rpg-combat-action-row">${abilities.map(abilityButton).join('')}</div>
+                ${items.length ? `<div class="rpg-combat-action-row">${items.map(itemButton).join('')}</div>` : ''}
+                <div class="rpg-combat-action-row">
+                    ${basic('dodge', 'fa-person-falling', t('encounter.ui.dodge', 'Dodge'), t('encounter.ui.dodgeHint', '+3 DCV until your next phase'))}
+                    ${basic('recover', 'fa-lungs', t('encounter.ui.recover', 'Recover'), t('encounter.ui.recoverHint', 'Regain your REC in END'))}
+                    ${basic('flee', 'fa-person-running', t('encounter.ui.flee', 'Flee'), t('encounter.ui.fleeHint', 'DEX roll against the fastest enemy; success ends the fight'))}
+                    ${basic('pass', 'fa-hourglass', t('encounter.ui.wait', 'Wait'), t('encounter.ui.waitHint', 'Do nothing this phase'))}
+                </div>
+            </div>`;
+    }
+
+    renderLog() {
+        let last = '';
+        const out = [];
+        for (const entry of this.state.log) {
+            const mark = `${entry.turn}.${entry.segment}`;
+            if (entry.actorId && mark !== last) {
+                out.push(`<div class="rpg-combat-log-mark">${esc(t('encounter.ui.turnSegment', 'Turn {turn}, segment {segment}').replace('{turn}', entry.turn).replace('{segment}', entry.segment))}</div>`);
+                last = mark;
+            }
+            const actor = entry.actorId ? getCombatant(this.state, entry.actorId) : null;
+            out.push(`<div class="rpg-combat-log-entry rpg-combat-log-${actor ? actor.side : 'system'} rpg-combat-log-${entry.kind}">${esc(entry.text)}</div>`);
+        }
+        return out.join('');
+    }
+
+    /** Avatar for named characters, the emoji sprite otherwise. */
+    portrait(block, isPlayer = false) {
+        const url = isPlayer ? (user_avatar ? getSafeThumbnailUrl('persona', user_avatar) : null) : this.getCharacterAvatar(block.name);
+        const sprite = esc(block.sprite || (isPlayer ? '🧑' : '👹'));
+        if (url) return `<span class="rpg-combat-portrait"><img src="${esc(url)}" alt="" onerror="this.parentElement.textContent='${sprite}'"></span>`;
+        return `<span class="rpg-combat-portrait">${sprite}</span>`;
+    }
+
+    /* -----------------------------------------------------------------------
+       The end
+       ----------------------------------------------------------------------- */
+
+    async concludeEncounter() {
+        if (!this.state) {
+            this.close();
+            return;
+        }
+        if (this.ended) return;
+        conclude(this.state, 'interrupted');
+        if (!this.running) await this.endCombat(this.state.result);
+    }
+
+    async endCombat(result) {
+        if (this.ended) return;
+        this.ended = true;
+        try {
+            this.showCombatOverScreen(result);
+            this.awardCombatExp(result);
+
+            const lines = [];
+            let last = '';
+            for (const entry of this.state.log) {
+                const mark = `Turn ${entry.turn}, segment ${entry.segment}`;
+                if (entry.actorId && mark !== last) {
+                    lines.push(`[${mark}]`);
+                    last = mark;
+                }
+                lines.push(entry.text);
+            }
+            currentEncounter.encounterLog = lines;
+
+            const summaryPrompt = await buildCombatSummaryPrompt(lines, result);
+            const response = await safeGenerateRaw({ prompt: summaryPrompt, quietToLoud: false });
+            if (!response) {
+                this.updateCombatOverScreen(false);
+                return;
+            }
+            const summary = response.replace(/\[FIGHT CONCLUDED\]\s*/i, '').trim();
+            const speakerName = this.getCombatNarrator();
+            try {
+                await executeSlashCommandsOnChatInput(`/sendas name="${speakerName}" ${summary}`, { clearChatInput: false });
+                this.updateCombatOverScreen(true, speakerName);
+            } catch (sendError) {
+                console.error('[RPG Companion] Error using /sendas command:', sendError);
+                const lastMessage = chat?.[chat.length - 1];
+                if (lastMessage) {
+                    lastMessage.mes += '\n\n' + summary;
+                    saveChatDebounced();
+                }
+                this.updateCombatOverScreen(true, 'chat');
+            }
+            const context = getContext();
+            if (context.chatId) saveEncounterLog(context.chatId, { log: lines, summary, result });
+        } catch (error) {
+            console.error('[RPG Companion] Error ending combat:', error);
+            this.updateCombatOverScreen(false);
+        }
+    }
+
+    /** EXP for beaten enemies (all on a victory, otherwise those brought to 0 HP), scaled by tier. */
+    awardCombatExp(result) {
+        if (this._expAwarded) return;
+        this._expAwarded = true;
+        const enemies = this.state.combatants
+            .filter(c => c.side === 'enemies' && !c.fled)
+            .map(c => ({ name: c.name, hp: c.hp, level: c.block.level, tier: c.block.tier }));
+        const rewards = encounterRewards(enemies, result);
+        if (!rewards.total) return;
+        grantExp(rewards.total, t('progression.encounterDone', 'Encounter'));
+
+        const overScreen = this.modal?.querySelector('.rpg-encounter-over');
+        if (!overScreen) return;
+        const lvl = t('encounter.ui.levelShort', 'Lv');
+        const list = document.createElement('div');
+        list.className = 'rpg-encounter-exp';
+        list.innerHTML = `<div class="rpg-encounter-exp-total">+${rewards.total} ${esc(t('progression.exp', 'EXP'))}</div>`
+            + rewards.enemies.map(e => `<div>${esc(e.name)} <span>(${lvl} ${e.level}${e.tier !== 'standard' ? `, ${esc(e.tier)}` : ''})</span> +${e.exp}</div>`).join('');
+        overScreen.querySelector('h2')?.after(list);
+    }
+
+    showCombatOverScreen(result) {
+        const main = this.showMain();
+        const icons = { victory: 'fa-trophy', defeat: 'fa-skull-crossbones', escaped: 'fa-person-running', fled: 'fa-person-running', interrupted: 'fa-flag-checkered' };
+        const colors = { victory: 'var(--rpg-success)', defeat: 'var(--rpg-danger)', escaped: 'var(--rpg-highlight)', fled: 'var(--rpg-highlight)', interrupted: 'var(--rpg-muted)' };
+        const texts = {
+            victory: t('encounter.ui.result.victory', 'Victory'),
+            defeat: t('encounter.ui.result.defeat', 'Defeat'),
+            escaped: t('encounter.ui.result.escaped', 'Escaped'),
+            fled: t('encounter.ui.result.fled', 'Fled'),
+            interrupted: t('encounter.ui.result.interrupted', 'Interrupted')
+        };
+        main.innerHTML = `
+            <div class="rpg-encounter-over">
+                <i class="fa-solid ${icons[result] || 'fa-flag-checkered'}" style="color: ${colors[result] || 'var(--rpg-muted)'}"></i>
+                <h2>${esc(texts[result] || result)}</h2>
+                <p>${esc(t('encounter.ui.generatingCombatSummary', 'Generating combat summary...'))}</p>
+                <div class="rpg-encounter-over-actions"><i class="fa-solid fa-spinner fa-spin"></i></div>
+            </div>`;
+    }
+
+    updateCombatOverScreen(success, speakerName = '') {
+        const overScreen = this.modal?.querySelector('.rpg-encounter-over');
+        if (!overScreen) return;
+        overScreen.querySelector('p').textContent = success
+            ? (speakerName
+                ? t('encounter.ui.combatSummaryAddedBy', 'Combat summary has been added to the chat by {speakerName}.').replace('{speakerName}', speakerName)
+                : t('encounter.ui.combatSummaryAdded', 'Combat summary has been added to the chat.'))
+            : t('encounter.ui.failedToCreateSummary', 'Failed to create summary. You can close this window.');
+        const actions = overScreen.querySelector('.rpg-encounter-over-actions');
+        actions.innerHTML = `<button type="button" class="rpg-btn rpg-btn-primary" id="rpg-encounter-close-final"><i class="fa-solid fa-check"></i> ${esc(t('encounter.ui.closeCombatWindow', 'Close Combat Window'))}</button>`;
+        actions.querySelector('button').addEventListener('click', () => this.close());
+    }
+
+    /* -----------------------------------------------------------------------
+       Window
+       ----------------------------------------------------------------------- */
+
+    createModal() {
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="rpg-encounter-modal" class="rpg-encounter-modal" data-theme="${esc(extensionSettings.theme || 'default')}" data-environment="default" data-atmosphere="default">
+                <div class="rpg-encounter-overlay"></div>
+                <div class="rpg-encounter-container">
+                    <div class="rpg-encounter-header">
+                        <h2><i class="fa-solid fa-swords"></i> ${esc(t('encounter.ui.combatEncounterTitle', 'Combat Encounter'))}</h2>
+                        <div class="rpg-encounter-header-buttons">
+                            <button id="rpg-encounter-conclude" class="rpg-encounter-conclude-btn" title="${esc(t('encounter.ui.concludeEncounterTitle', 'Conclude encounter early'))}">
+                                <i class="fa-solid fa-flag-checkered"></i> ${esc(t('encounter.ui.concludeEncounterButton', 'Conclude Encounter'))}
+                            </button>
+                            <button id="rpg-encounter-close" class="rpg-encounter-close-btn" title="${esc(t('encounter.ui.closeTitle', 'Close (ends combat)'))}">
+                                <i class="fa-solid fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="rpg-encounter-content">
+                        <div id="rpg-encounter-loading" class="rpg-encounter-loading">
+                            <i class="fa-solid fa-spinner fa-spin"></i>
+                            <p>${esc(t('encounter.ui.initializingCombat', 'Initializing combat...'))}</p>
+                        </div>
+                        <div id="rpg-encounter-main" class="rpg-encounter-main" style="display: none;"></div>
+                    </div>
+                </div>
+            </div>`);
+        this.modal = document.getElementById('rpg-encounter-modal');
+
+        this.modal.querySelector('#rpg-encounter-conclude').addEventListener('click', () => {
+            if (this.ended) return;
+            if (!this.state || confirm(t('encounter.ui.confirmConcludeEarly', 'Conclude this encounter early and generate a summary?'))) {
+                this.concludeEncounter();
+            }
+        });
+        const askClose = () => {
+            if (this.ended || !this.state || confirm(t('encounter.ui.confirmEndCombat', 'Are you sure you want to end this combat encounter?'))) {
+                this.close();
+            }
+        };
+        this.modal.querySelector('#rpg-encounter-close').addEventListener('click', askClose);
+        this.modal.querySelector('.rpg-encounter-overlay').addEventListener('click', askClose);
+    }
+
+    /** Shows the main area (hiding the loading/error area) and returns it. */
+    showMain() {
+        const loading = this.modal.querySelector('#rpg-encounter-loading');
+        const main = this.modal.querySelector('#rpg-encounter-main');
+        loading.style.display = 'none';
+        main.style.display = 'block';
+        return main;
+    }
+
+    showLoadingState(message) {
+        const loading = this.modal.querySelector('#rpg-encounter-loading');
+        const main = this.modal.querySelector('#rpg-encounter-main');
+        loading.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><p>${esc(message)}</p>`;
+        loading.style.display = 'flex';
+        main.style.display = 'none';
+    }
+
+    showErrorWithRegenerate(message) {
+        const loading = this.modal.querySelector('#rpg-encounter-loading');
+        this.modal.querySelector('#rpg-encounter-main').style.display = 'none';
+        loading.style.display = 'flex';
+        loading.innerHTML = `
+            <div class="rpg-encounter-error-box">
+                <i class="fa-solid fa-exclamation-triangle"></i>
+                <p class="rpg-encounter-error-title">${esc(t('encounter.ui.wrongFormatDetected', 'Wrong Format Detected'))}</p>
+                <p>${esc(message)}</p>
+                <div class="rpg-encounter-error-actions">
+                    <button id="rpg-error-regenerate" class="rpg-btn rpg-btn-primary"><i class="fa-solid fa-rotate-right"></i> ${esc(t('encounter.ui.regenerate', 'Regenerate'))}</button>
+                    <button id="rpg-error-close" class="rpg-btn rpg-btn-secondary"><i class="fa-solid fa-times"></i> ${esc(t('global.close', 'Close'))}</button>
+                </div>
+            </div>`;
+        loading.querySelector('#rpg-error-regenerate').addEventListener('click', () => this.regenerateLastRequest());
+        loading.querySelector('#rpg-error-close').addEventListener('click', () => this.close());
+    }
+
+    close() {
+        this.closed = true;
+        if (this.modal) this.modal.classList.remove('is-open');
+        resetEncounter();
+    }
+
+    /* -----------------------------------------------------------------------
+       Kept from the previous window: narrative style, avatars, narrator, styling
+       ----------------------------------------------------------------------- */
 
     /**
      * Shows narrative configuration modal before starting encounter
@@ -311,207 +871,6 @@ export class EncounterModal {
     }
 
     /**
-     * Creates the modal DOM structure
-     */
-    createModal() {
-        const modalHTML = `
-            <div id="rpg-encounter-modal" class="rpg-encounter-modal" data-theme="${extensionSettings.theme || 'default'}" data-environment="default" data-atmosphere="default">
-                <div class="rpg-encounter-overlay"></div>
-                <div class="rpg-encounter-container">
-                    <div class="rpg-encounter-header">
-                        <h2><i class="fa-solid fa-swords"></i> ${i18n.getTranslation('encounter.ui.combatEncounterTitle') || 'Combat Encounter'}</h2>
-                        <div class="rpg-encounter-header-buttons">
-                            <button id="rpg-encounter-conclude" class="rpg-encounter-conclude-btn" title="${i18n.getTranslation('encounter.ui.concludeEncounterTitle') || 'Conclude encounter early'}">
-                                <i class="fa-solid fa-flag-checkered"></i> ${i18n.getTranslation('encounter.ui.concludeEncounterButton') || 'Conclude Encounter'}
-                            </button>
-                            <button id="rpg-encounter-close" class="rpg-encounter-close-btn" title="${i18n.getTranslation('encounter.ui.closeTitle') || 'Close (ends combat)'}">
-                                <i class="fa-solid fa-times"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="rpg-encounter-content">
-                        <div id="rpg-encounter-loading" class="rpg-encounter-loading">
-                            <i class="fa-solid fa-spinner fa-spin"></i>
-                            <p>${i18n.getTranslation('encounter.ui.initializingCombat') || 'Initializing combat...'}</p>
-                        </div>
-                        <div id="rpg-encounter-main" class="rpg-encounter-main" style="display: none;">
-                            <!-- Combat UI will be rendered here -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        document.body.insertAdjacentHTML('beforeend', modalHTML);
-        this.modal = document.getElementById('rpg-encounter-modal');
-
-        // Add event listeners
-        this.modal.querySelector('#rpg-encounter-conclude').addEventListener('click', () => {
-            if (confirm(i18n.getTranslation('encounter.ui.confirmConcludeEarly') || 'Conclude this encounter early and generate a summary?')) {
-                this.concludeEncounter();
-            }
-        });
-
-        this.modal.querySelector('#rpg-encounter-close').addEventListener('click', () => {
-            if (confirm(i18n.getTranslation('encounter.ui.confirmEndCombat') || 'Are you sure you want to end this combat encounter?')) {
-                this.close();
-            }
-        });
-
-        // Close on overlay click
-        this.modal.querySelector('.rpg-encounter-overlay').addEventListener('click', () => {
-            if (confirm(i18n.getTranslation('encounter.ui.confirmEndCombat') || 'Are you sure you want to end this combat encounter?')) {
-                this.close();
-            }
-        });
-    }
-
-    /**
-     * Renders the combat UI with party, enemies, and controls
-     * @param {object} combatData - Combat data including party and enemies
-     */
-    renderCombatUI(combatData) {
-        const mainContent = this.modal.querySelector('#rpg-encounter-main');
-        const loadingContent = this.modal.querySelector('#rpg-encounter-loading');
-
-        loadingContent.style.display = 'none';
-        mainContent.style.display = 'block';
-
-        const context = getContext();
-        const userName = context.name1;
-
-        let html = `
-            <div class="rpg-encounter-battlefield">
-                <!-- Environment -->
-                <div class="rpg-encounter-environment">
-                    <p><i class="fa-solid fa-mountain"></i> ${combatData.environment || i18n.getTranslation('encounter.ui.environment.default') || 'Battle Arena'}</p>
-                </div>
-
-                <!-- Enemies Section -->
-                <div class="rpg-encounter-section">
-                    <h3><i class="fa-solid fa-skull"></i> ${i18n.getTranslation('encounter.ui.enemiesTitle') || 'Enemies'}</h3>
-                    <div class="rpg-encounter-enemies">
-                        ${this.renderEnemies(combatData.enemies)}
-                    </div>
-                </div>
-
-                <!-- Party Section -->
-                <div class="rpg-encounter-section">
-                    <h3><i class="fa-solid fa-users"></i> ${i18n.getTranslation('encounter.ui.partyTitle') || 'Party'}</h3>
-                    <div class="rpg-encounter-party">
-                        ${this.renderParty(combatData.party)}
-                    </div>
-                </div>
-
-                <!-- Combat Log -->
-                <div class="rpg-encounter-log-section">
-                    <h3><i class="fa-solid fa-scroll"></i> ${i18n.getTranslation('encounter.ui.combatLog') || 'Combat Log'}</h3>
-                    <div id="rpg-encounter-log" class="rpg-encounter-log">
-                        <div class="rpg-encounter-log-entry">
-                            <em>${i18n.getTranslation('encounter.ui.combatBegins') || 'Combat begins!'}</em>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Player Controls -->
-                ${this.renderPlayerControls(combatData.party, currentEncounter.playerActions)}
-            </div>
-        `;
-
-        mainContent.innerHTML = html;
-
-        // Add event listeners for controls
-        this.attachControlListeners(combatData.party);
-    }
-
-    /**
-     * Renders enemy cards
-     * @param {Array} enemies - Array of enemy data
-     * @returns {string} HTML for enemies
-     */
-    renderEnemies(enemies) {
-        return enemies.map((enemy, index) => {
-            const hpPercent = (enemy.hp / enemy.maxHp) * 100;
-            const isDead = enemy.hp <= 0;
-
-            // Try to find avatar for enemy (they might be a character from the chat or Present Characters)
-            const avatarUrl = this.getCharacterAvatar(enemy.name);
-            const sprite = enemy.sprite || i18n.getTranslation('encounter.ui.enemyDefaultEmoji') || '👹';
-
-            // Fallback SVG if no avatar found
-            const fallbackSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2NjY2NjYyIgb3BhY2l0eT0iMC4zIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIiBmaWxsPSIjNjY2IiBmb250LXNpemU9IjQwIj4/PC90ZXh0Pjwvc3ZnPg==';
-
-            return `
-                <div class="rpg-encounter-card ${isDead ? 'rpg-encounter-dead' : ''}" data-enemy-index="${index}">
-                    <div class="rpg-encounter-card-sprite">
-                        ${avatarUrl ? `<img src="${avatarUrl}" alt="${enemy.name}" onerror="this.parentElement.innerHTML='${sprite}';this.onerror=null;">` : sprite}
-                    </div>
-                    <div class="rpg-encounter-card-info">
-                        <h4>${enemy.name}${Number(enemy.level) > 0 ? ` <span class="rpg-encounter-level">${i18n.getTranslation('encounter.ui.levelShort') || 'Lv'} ${Math.round(enemy.level)}</span>` : ''}</h4>
-                        <div class="rpg-encounter-hp-bar">
-                            <div class="rpg-encounter-hp-fill" style="width: ${hpPercent}%"></div>
-                            <span class="rpg-encounter-hp-text">${enemy.hp}/${enemy.maxHp}${i18n.getTranslation('encounter.ui.hpSuffix') || ' HP'}</span>
-                        </div>
-                        ${enemy.statuses && enemy.statuses.length > 0 ? `
-                            <div class="rpg-encounter-statuses">
-                                ${enemy.statuses.map(status => `<span class="rpg-encounter-status" title="${status.name}">${status.emoji}</span>`).join('')}
-                            </div>
-                        ` : ''}
-                        ${enemy.description ? `<p class="rpg-encounter-description">${enemy.description}</p>` : ''}
-                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    /**
-     * Renders party member cards
-     * @param {Array} party - Array of party member data
-     * @returns {string} HTML for party
-     */
-    renderParty(party) {
-        const context = getContext();
-
-        return party.map((member, index) => {
-            const hpPercent = (member.hp / member.maxHp) * 100;
-            const isDead = member.hp <= 0;
-
-            // Get avatar for party member
-            let avatarUrl = '';
-            if (member.isPlayer) {
-                // Get user/persona avatar using user_avatar like userStats does
-                if (user_avatar) {
-                    avatarUrl = getSafeThumbnailUrl('persona', user_avatar);
-                }
-            } else {
-                // Try to find character avatar by name
-                avatarUrl = this.getCharacterAvatar(member.name);
-            }
-
-            // Fallback SVG if no avatar found
-            const fallbackSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIj48cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgZmlsbD0iI2NjY2NjYyIgb3BhY2l0eT0iMC4zIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIiBmaWxsPSIjNjY2IiBmb250LXNpemU9IjQwIj4/PC90ZXh0Pjwvc3ZnPg==';
-
-            return `
-                <div class="rpg-encounter-card ${isDead ? 'rpg-encounter-dead' : ''}" data-party-index="${index}">
-                    <div class="rpg-encounter-card-avatar">
-                        <img src="${avatarUrl || fallbackSvg}" alt="${member.name}" onerror="this.src='${fallbackSvg}'">
-                    </div>
-                    <div class="rpg-encounter-card-info">
-                        <h4>${member.name} ${member.isPlayer ? i18n.getTranslation('encounter.ui.playerSuffix') || '(You)' : ''}</h4>
-                        <div class="rpg-encounter-hp-bar">
-                            <div class="rpg-encounter-hp-fill rpg-encounter-hp-party" style="width: ${hpPercent}%"></div>
-                            <span class="rpg-encounter-hp-text">${member.hp}/${member.maxHp}${i18n.getTranslation('encounter.ui.hpSuffix') || ' HP'}</span>
-                        </div>                        ${member.statuses && member.statuses.length > 0 ? `
-                            <div class="rpg-encounter-statuses">
-                                ${member.statuses.map(status => `<span class="rpg-encounter-status" title="${status.name}">${status.emoji}</span>`).join('')}
-                            </div>
-                        ` : ''}                    </div>
-                </div>
-            `;
-        }).join('');
-    }
-
-    /**
      * Gets avatar for a character by name (works for party members, enemies, and NPCs)
      * @param {string} name - Character name
      * @returns {string} Avatar URL or null
@@ -557,624 +916,6 @@ export class EncounterModal {
 
         // No avatar found
         return null;
-    }
-
-    /**
-     * Shows target selection modal for attacks
-     * @param {string} attackType - Type of attack (single-target, AoE, both)
-     * @param {Object} combatStats - Current combat state
-     * @returns {Promise<string|null>} Selected target name or null if cancelled
-     */
-    async showTargetSelection(attackType, combatStats) {
-        return new Promise((resolve) => {
-            const targetModal = document.createElement('div');
-            targetModal.className = 'rpg-target-selection-overlay';
-
-            let targetOptions = '';
-
-            // Build target options based on attack type
-            if (attackType === 'AoE') {
-                targetOptions = `
-                    <div class="rpg-target-option" data-target="all-enemies">
-                        <div class="rpg-target-icon">💥</div>
-                        <div class="rpg-target-name">${i18n.getTranslation('encounter.ui.allEnemies') || 'All Enemies'}</div>
-                        <div class="rpg-target-desc">${i18n.getTranslation('encounter.ui.areaOfEffect') || 'Area of Effect'}</div>
-                    </div>
-                `;
-            } else if (attackType === 'both') {
-                targetOptions = `
-                    <div class="rpg-target-option" data-target="all-enemies">
-                        <div class="rpg-target-icon">💥</div>
-                        <div class="rpg-target-name">${i18n.getTranslation('encounter.ui.allEnemies') || 'All Enemies'}</div>
-                        <div class="rpg-target-desc">${i18n.getTranslation('encounter.ui.areaOfEffect') || 'Area of Effect'}</div>
-                    </div>
-                    <div class="rpg-target-divider">${i18n.getTranslation('encounter.ui.or') || 'OR'}</div>
-                `;
-            }
-
-            // Add individual targets (enemies and allies)
-            if (attackType !== 'AoE') {
-                // Add enemies
-                combatStats.enemies.forEach((enemy, index) => {
-                    if (enemy.hp > 0) {
-                        targetOptions += `
-                            <div class="rpg-target-option" data-target="${enemy.name}" data-target-type="enemy" data-target-index="${index}">
-                                <div class="rpg-target-icon">${enemy.sprite || '👹'}</div>
-                                <div class="rpg-target-name">${enemy.name}</div>
-                                <div class="rpg-target-hp">${enemy.hp}/${enemy.maxHp}${i18n.getTranslation('encounter.ui.hpSuffix') || ' HP'}</div>
-                            </div>
-                        `;
-                    }
-                });
-
-                // Add party members (for heals/buffs)
-                combatStats.party.forEach((member, index) => {
-                    if (member.hp > 0) {
-                        const isPlayer = member.isPlayer ? i18n.getTranslation('encounter.ui.playerSuffix') || ' (You)' : '';
-                        // Get avatar for party member
-                        let avatarIcon = '✨';
-                        if (member.isPlayer && user_avatar) {
-                            avatarIcon = `<img src="${getSafeThumbnailUrl('persona', user_avatar)}" alt="${member.name}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">`;
-                        } else {
-                            const avatarUrl = this.getCharacterAvatar(member.name);
-                            if (avatarUrl) {
-                                avatarIcon = `<img src="${avatarUrl}" alt="${member.name}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">`;
-                            }
-                        }
-                        targetOptions += `
-                            <div class="rpg-target-option rpg-target-ally" data-target="${member.name}" data-target-type="party" data-target-index="${index}">
-                                <div class="rpg-target-icon">${avatarIcon}</div>
-                                <div class="rpg-target-name">${member.name}${isPlayer}</div>
-                                <div class="rpg-target-hp">${member.hp}/${member.maxHp}${i18n.getTranslation('encounter.ui.hpSuffix') || ' HP'}</div>
-                            </div>
-                        `;
-                    }
-                });
-            }
-
-            targetModal.innerHTML = `
-                <div class="rpg-target-selection-modal">
-                    <h3><i class="fa-solid fa-crosshairs"></i> ${i18n.getTranslation('encounter.ui.selectTarget') || 'Select Target'}</h3>
-                    <div class="rpg-target-list">
-                        ${targetOptions}
-                    </div>
-                    <button class="rpg-target-cancel">${i18n.getTranslation('global.cancel') || 'Cancel'}</button>
-                </div>
-            `;
-
-            document.body.appendChild(targetModal);
-
-            // Handle target selection
-            targetModal.querySelectorAll('.rpg-target-option').forEach(option => {
-                option.addEventListener('click', () => {
-                    const target = option.dataset.target;
-                    document.body.removeChild(targetModal);
-                    resolve(target);
-                });
-            });
-
-            // Handle cancel
-            targetModal.querySelector('.rpg-target-cancel').addEventListener('click', () => {
-                document.body.removeChild(targetModal);
-                resolve(null);
-            });
-
-            // Handle overlay click
-            targetModal.addEventListener('click', (e) => {
-                if (e.target === targetModal) {
-                    document.body.removeChild(targetModal);
-                    resolve(null);
-                }
-            });
-        });
-    }
-
-    /**
-     * Renders player action controls
-     * @param {Array} party - Party data
-     * @returns {string} HTML for controls
-     */
-    renderPlayerControls(party, playerActions = null) {
-        const player = party.find(m => m.isPlayer);
-        if (!player || player.hp <= 0) {
-            return '<div class="rpg-encounter-controls"><p class="rpg-encounter-defeated">' + (i18n.getTranslation('encounter.ui.youHaveBeenDefeated') || 'You have been defeated...') + '</p></div>';
-        }
-
-        // Use playerActions if provided, otherwise fall back to player data
-        const attacks = playerActions?.attacks || player.attacks || [];
-        const items = playerActions?.items || player.items || [];
-
-        return `
-            <div class="rpg-encounter-controls">
-                <h3><i class="fa-solid fa-hand-fist"></i> ${i18n.getTranslation('encounter.ui.yourActions') || 'Your Actions'}</h3>
-
-                <div class="rpg-encounter-action-buttons">
-                    <div class="rpg-encounter-button-group">
-                        <h4>${i18n.getTranslation('encounter.ui.attacks') || 'Attacks'}</h4>
-                        ${attacks.map(attack => {
-                            // Support both old string format and new object format
-                            const attackName = typeof attack === 'string' ? attack : attack.name;
-                            const attackType = typeof attack === 'string' ? 'single-target' : (attack.type || 'single-target');
-                            const typeIcon = attackType === 'AoE' ? '💥' : attackType === 'both' ? '⚡' : '🎯';
-
-                            return `
-                            <button class="rpg-encounter-action-btn rpg-encounter-attack-btn"
-                                    data-action="attack"
-                                    data-value="${attackName}"
-                                    data-attack-type="${attackType}"
-                                    title="${attackType === 'AoE' ? i18n.getTranslation('encounter.ui.attackType.aoe') || 'Area of Effect' : attackType === 'both' ? i18n.getTranslation('encounter.ui.attackType.both') || 'Single or AoE' : i18n.getTranslation('encounter.ui.attackType.single') || 'Single Target'}">
-                                <i class="fa-solid fa-sword"></i> ${attackName} ${typeIcon}
-                            </button>
-                            `;
-                        }).join('')}
-                    </div>
-
-                    ${items && items.length > 0 ? `
-                        <div class="rpg-encounter-button-group">
-                            <h4>${i18n.getTranslation('encounter.ui.items') || 'Items'}</h4>
-                            ${items.map(item => `
-                                <button class="rpg-encounter-action-btn rpg-encounter-item-btn" data-action="item" data-value="${item}">
-                                    <i class="fa-solid fa-flask"></i> ${item}
-                                </button>
-                            `).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-
-                <div class="rpg-encounter-custom-action">
-                    <h4>${i18n.getTranslation('encounter.ui.customAction') || 'Custom Action'}</h4>
-                    <div class="rpg-encounter-input-group">
-                        <input type="text" id="rpg-encounter-custom-input" placeholder="${i18n.getTranslation('encounter.ui.customActionPlaceholder') || 'Describe what you want to do...'}" />
-                        <button id="rpg-encounter-custom-submit" class="rpg-encounter-submit-btn">
-                            <i class="fa-solid fa-paper-plane"></i> ${i18n.getTranslation('encounter.ui.submit') || 'Submit'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        `;
-    }
-
-    /**
-     * Attaches event listeners to control buttons
-     * @param {Array} party - Party data for reference
-     */
-    attachControlListeners(party) {
-        // Only attach once - event delegation on the modal means listeners persist
-        if (this._listenersAttached) {
-            return;
-        }
-
-        // Store handlers as instance properties so we can remove them if needed
-        this._actionHandler = async (e) => {
-            // Handle action buttons (attack/item)
-            const actionBtn = e.target.closest('.rpg-encounter-action-btn');
-            if (actionBtn && !actionBtn.disabled && !this.isProcessing) {
-                const actionType = actionBtn.dataset.action;
-                const value = actionBtn.dataset.value;
-                const attackType = actionBtn.dataset.attackType;
-                const context = getContext();
-                const userName = context.name1;
-
-                let actionText = '';
-
-                if (actionType === 'attack') {
-                    const target = await this.showTargetSelection(attackType, currentEncounter.combatStats);
-                    if (!target) return;
-
-                    if (target === 'all-enemies') {
-                        actionText = `${userName} uses ${value}${i18n.getTranslation('encounter.ui.targetingAllEnemies') || ' targeting all enemies!'}`;
-                    } else {
-                        actionText = `${userName} uses ${value}${i18n.getTranslation('encounter.ui.on') || ' on '}${target}!`;
-                    }
-                } else if (actionType === 'item') {
-                    const target = await this.showTargetSelection('single-target', currentEncounter.combatStats);
-                    if (!target) return;
-
-                    actionText = `${userName} uses ${value}${i18n.getTranslation('encounter.ui.on') || ' on '}${target}!`;
-                }
-
-                await this.processCombatAction(actionText);
-                return;
-            }
-
-            // Handle custom submit button
-            const submitBtn = e.target.closest('#rpg-encounter-custom-submit');
-            if (submitBtn && !submitBtn.disabled && !this.isProcessing) {
-                const input = this.modal.querySelector('#rpg-encounter-custom-input');
-                if (input) {
-                    const action = input.value.trim();
-                    if (action) {
-                        await this.processCombatAction(action);
-                        input.value = '';
-                    }
-                }
-            }
-        };
-
-        this._keypressHandler = async (e) => {
-            const input = e.target.closest('#rpg-encounter-custom-input');
-            if (input && e.key === 'Enter' && !this.isProcessing) {
-                const action = input.value.trim();
-                if (action) {
-                    await this.processCombatAction(action);
-                    input.value = '';
-                }
-            }
-        };
-
-        // Attach to the modal itself (which never gets replaced)
-        this.modal.addEventListener('click', this._actionHandler);
-        this.modal.addEventListener('keypress', this._keypressHandler);
-
-        this._listenersAttached = true;
-    }
-
-    /**
-     * Processes a combat action
-     * @param {string} action - The action description
-     */
-    async processCombatAction(action) {
-        if (this.isProcessing) return;
-
-        this.isProcessing = true;
-
-        try {
-            // Disable all buttons
-            this.modal.querySelectorAll('.rpg-encounter-action-btn, #rpg-encounter-custom-submit').forEach(btn => {
-                btn.disabled = true;
-            });
-
-            // Add action to log
-            this.addToLog(`${i18n.getTranslation('encounter.ui.youPrefix') || 'You: '}${action}`, 'player-action');
-
-            // Build and send combat action prompt
-            const actionPrompt = await buildCombatActionPrompt(action, currentEncounter.combatStats);
-
-            // Store request for potential regeneration
-            this.lastRequest = { type: 'action', action, prompt: actionPrompt };
-
-            const response = await safeGenerateRaw({
-                prompt: actionPrompt,
-                quietToLoud: false
-            });
-
-            if (!response) {
-                this.showErrorWithRegenerate(i18n.getTranslation('encounter.ui.error.noResponse') || 'No response received from AI. The model may be unavailable.');
-                return;
-            }
-
-            // Parse response
-            const result = parseEncounterJSON(response);
-
-            if (!result || !result.combatStats) {
-                this.showErrorWithRegenerate(i18n.getTranslation('encounter.ui.error.invalidJsonFormat') || 'Invalid JSON format detected. The AI returned malformed data. Ensure the Max Response Length is set to at least 2048 tokens, otherwise the model might run out of tokens and produce unfinished structures.');
-                return;
-            }
-
-            // Turn updates don't repeat enemy levels; carry them over from the previous state.
-            keepEnemyLevels(currentEncounter.combatStats, result.combatStats);
-
-            // Update encounter state
-            updateCurrentEncounter({
-                combatStats: result.combatStats,
-                playerActions: result.playerActions
-            });
-
-            // Collect log entries in order: enemy actions, party actions, then narration
-            const logEntries = [];
-
-            // Add enemy actions first
-            if (result.enemyActions) {
-                result.enemyActions.forEach(enemyAction => {
-                    logEntries.push({ message: `${enemyAction.enemyName}: ${enemyAction.action}`, type: 'enemy-action' });
-                });
-            }
-
-            // Add party actions second
-            if (result.partyActions) {
-                result.partyActions.forEach(partyAction => {
-                    logEntries.push({ message: `${partyAction.memberName}: ${partyAction.action}`, type: 'party-action' });
-                });
-            }
-
-            // Add narrative last - split by newlines for line-by-line display
-            if (result.narrative) {
-                const narrativeLines = result.narrative.split('\n').filter(line => line.trim());
-                narrativeLines.forEach(line => {
-                    logEntries.push({ message: line, type: 'narrative' });
-                });
-            }
-
-            // Display log entries sequentially with animation
-            await this.addLogsSequentially(logEntries);
-
-            // Add to encounter log for summary - include all actions
-            let fullActionLog = action;
-            if (result.enemyActions && result.enemyActions.length > 0) {
-                result.enemyActions.forEach(enemyAction => {
-                    fullActionLog += `\n${enemyAction.enemyName}: ${enemyAction.action}`;
-                });
-            }
-            if (result.partyActions && result.partyActions.length > 0) {
-                result.partyActions.forEach(partyAction => {
-                    fullActionLog += `\n${partyAction.memberName}: ${partyAction.action}`;
-                });
-            }
-            addEncounterLogEntry(fullActionLog, result.narrative || 'Action resolved');
-
-            // Update UI
-            this.updateCombatUI(result.combatStats);
-
-            // Check if combat ended
-            if (result.combatEnd) {
-                await this.endCombat(result.result || 'unknown');
-                return;
-            }
-
-            // Re-enable buttons
-            this.modal.querySelectorAll('.rpg-encounter-action-btn, #rpg-encounter-custom-submit').forEach(btn => {
-                btn.disabled = false;
-            });
-
-        } catch (error) {
-            console.error('[RPG Companion] Error processing combat action:', error);
-            this.showErrorWithRegenerate(`${i18n.getTranslation('encounter.ui.error.errorProcessingAction') || 'Error processing action:'} ${error.message}`);
-
-            // Re-enable buttons
-            this.modal.querySelectorAll('.rpg-encounter-action-btn, #rpg-encounter-custom-submit').forEach(btn => {
-                btn.disabled = false;
-            });
-        } finally {
-            this.isProcessing = false;
-        }
-    }
-
-    /**
-     * Updates the combat UI with new stats
-     * @param {object} combatStats - Updated combat statistics
-     */
-    updateCombatUI(combatStats) {
-        // Update enemies
-        combatStats.enemies.forEach((enemy, index) => {
-            const card = this.modal.querySelector(`[data-enemy-index="${index}"]`);
-            if (card) {
-                const hpPercent = (enemy.hp / enemy.maxHp) * 100;
-                const isDead = enemy.hp <= 0;
-
-                if (isDead) {
-                    card.classList.add('rpg-encounter-dead');
-                }
-
-                const hpBar = card.querySelector('.rpg-encounter-hp-fill');
-                const hpText = card.querySelector('.rpg-encounter-hp-text');
-
-                if (hpBar) hpBar.style.width = `${hpPercent}%`;
-                if (hpText) hpText.textContent = `${enemy.hp}/${enemy.maxHp} HP`;
-            }
-        });
-
-        // Update party
-        combatStats.party.forEach((member, index) => {
-            const card = this.modal.querySelector(`[data-party-index="${index}"]`);
-            if (card) {
-                const hpPercent = (member.hp / member.maxHp) * 100;
-                const isDead = member.hp <= 0;
-
-                if (isDead) {
-                    card.classList.add('rpg-encounter-dead');
-                }
-
-                const hpBar = card.querySelector('.rpg-encounter-hp-fill');
-                const hpText = card.querySelector('.rpg-encounter-hp-text');
-
-                if (hpBar) hpBar.style.width = `${hpPercent}%`;
-                if (hpText) hpText.textContent = `${member.hp}/${member.maxHp} HP`;
-            }
-        });
-
-        // Re-render controls if player died OR if player's actions changed
-        const player = combatStats.party.find(m => m.isPlayer);
-        const controlsContainer = this.modal.querySelector('.rpg-encounter-controls');
-
-        if (player && player.hp <= 0) {
-            if (controlsContainer) {
-                controlsContainer.innerHTML = '<p class="rpg-encounter-defeated">' + (i18n.getTranslation('encounter.ui.youHaveBeenDefeated') || 'You have been defeated...') + '</p>';
-            }
-        } else if (currentEncounter.playerActions && controlsContainer) {
-            // Check if actions have changed by comparing with previous state
-            const actionsChanged = this.haveActionsChanged(currentEncounter.playerActions);
-
-            if (actionsChanged) {
-                // Store the new actions for next comparison
-                this._previousPlayerActions = {
-                    attacks: currentEncounter.playerActions.attacks ? JSON.parse(JSON.stringify(currentEncounter.playerActions.attacks)) : [],
-                    items: currentEncounter.playerActions.items ? [...currentEncounter.playerActions.items] : []
-                };
-
-                // Re-render the entire controls section with new actions
-                const newControlsHTML = this.renderPlayerControls(combatStats.party, currentEncounter.playerActions);
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = newControlsHTML;
-                const newControls = tempDiv.firstElementChild;
-
-                if (newControls) {
-                    controlsContainer.replaceWith(newControls);
-                }
-            }
-        }
-    }
-
-    /**
-     * Checks if player's available actions have changed
-     * @param {Object} playerActions - Current player actions data with attacks and items
-     * @returns {boolean} True if actions changed
-     */
-    haveActionsChanged(playerActions) {
-        if (!this._previousPlayerActions) {
-            // First time - store initial actions
-            this._previousPlayerActions = {
-                attacks: playerActions.attacks ? JSON.parse(JSON.stringify(playerActions.attacks)) : [],
-                items: playerActions.items ? [...playerActions.items] : []
-            };
-            return false;
-        }
-
-        const currentAttacks = playerActions.attacks || [];
-        const currentItems = playerActions.items || [];
-        const prevAttacks = this._previousPlayerActions.attacks || [];
-        const prevItems = this._previousPlayerActions.items || [];
-
-        // Check if attacks changed
-        if (currentAttacks.length !== prevAttacks.length) return true;
-        for (let i = 0; i < currentAttacks.length; i++) {
-            const curr = typeof currentAttacks[i] === 'string' ? currentAttacks[i] : currentAttacks[i].name;
-            const prev = typeof prevAttacks[i] === 'string' ? prevAttacks[i] : prevAttacks[i].name;
-            if (curr !== prev) return true;
-        }
-
-        // Check if items changed
-        if (currentItems.length !== prevItems.length) return true;
-        for (let i = 0; i < currentItems.length; i++) {
-            if (currentItems[i] !== prevItems[i]) return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Adds multiple log entries sequentially with animation
-     * @param {Array} entries - Array of {message, type} objects
-     * @param {number} delay - Delay between entries in ms
-     */
-    async addLogsSequentially(entries, delay = 400) {
-        for (const entry of entries) {
-            this.addToLog(entry.message, entry.type);
-            if (entries.indexOf(entry) < entries.length - 1) {
-                await new Promise(resolve => setTimeout(resolve, delay));
-            }
-        }
-    }
-
-    /**
-     * Adds an entry to the combat log
-     * @param {string} message - Log message
-     * @param {string} type - Log entry type (for styling)
-     */
-    addToLog(message, type = '') {
-        const logContainer = this.modal.querySelector('#rpg-encounter-log');
-        if (!logContainer) return;
-
-        const entry = document.createElement('div');
-        entry.className = `rpg-encounter-log-entry ${type}`;
-        entry.style.whiteSpace = 'pre-wrap';
-        entry.textContent = message;
-
-        logContainer.appendChild(entry);
-        logContainer.scrollTop = logContainer.scrollHeight;
-    }
-
-    /**
-     * Concludes the encounter early (user-initiated)
-     */
-    async concludeEncounter() {
-        if (!currentEncounter.active) {
-            console.warn('[RPG Companion] No active encounter to conclude');
-            return;
-        }
-
-        // End combat with "interrupted" result
-        await this.endCombat('interrupted');
-    }
-
-    /**
-     * Ends the combat and generates summary
-     * @param {string} result - Combat result ('victory', 'defeat', 'fled', 'interrupted')
-     */
-    async endCombat(result) {
-        try {
-            // Show combat over screen
-            this.showCombatOverScreen(result);
-            this.awardCombatExp(result);
-
-            // Generate summary
-            const summaryPrompt = await buildCombatSummaryPrompt(currentEncounter.encounterLog, result);
-
-            const summaryResponse = await safeGenerateRaw({
-                prompt: summaryPrompt,
-                quietToLoud: false
-            });
-
-            if (summaryResponse) {
-                // Extract summary (remove [FIGHT CONCLUDED] tag)
-                const summary = summaryResponse.replace(/\[FIGHT CONCLUDED\]\s*/i, '').trim();
-
-                // Determine which character should speak the summary
-                const speakerName = this.getCombatNarrator();
-
-                // Use /sendas command to safely add summary to chat
-                // This handles group chats properly and won't delete chat history
-                try {
-                    await executeSlashCommandsOnChatInput(
-                        `/sendas name="${speakerName}" ${summary}`,
-                        { clearChatInput: false }
-                    );
-
-                    // console.log(`[RPG Companion] Added combat summary to chat as "${speakerName}"`);
-
-                    // Update combat over screen
-                    this.updateCombatOverScreen(true, speakerName);
-                } catch (sendError) {
-                    console.error('[RPG Companion] Error using /sendas command:', sendError);
-                    // Fallback: try appending to last message
-                    if (chat && chat.length > 0) {
-                        const lastMessage = chat[chat.length - 1];
-                        if (lastMessage) {
-                            lastMessage.mes += '\n\n' + summary;
-                            saveChatDebounced();
-                        }
-                    }
-                    this.updateCombatOverScreen(true, 'chat');
-                }
-
-                // Save encounter log
-                const context = getContext();
-                if (context.chatId) {
-                    saveEncounterLog(context.chatId, {
-                        log: currentEncounter.encounterLog,
-                        summary: summary,
-                        result: result
-                    });
-                }
-            } else {
-                this.updateCombatOverScreen(false);
-            }
-
-        } catch (error) {
-            console.error('[RPG Companion] Error ending combat:', error);
-            this.updateCombatOverScreen(false);
-        }
-    }
-
-    /**
-     * Grants EXP for the enemies beaten in this encounter and lists it on the combat-over screen.
-     * @param {string} result - Combat result
-     */
-    awardCombatExp(result) {
-        if (this._expAwarded) return;
-        this._expAwarded = true;
-        const rewards = encounterRewards(currentEncounter.combatStats?.enemies, result);
-        if (!rewards.total) return;
-        grantExp(rewards.total, i18n.getTranslation('progression.encounterDone') || 'Encounter');
-
-        const overScreen = this.modal?.querySelector('.rpg-encounter-over');
-        if (!overScreen) return;
-        const lvl = i18n.getTranslation('encounter.ui.levelShort') || 'Lv';
-        const list = document.createElement('div');
-        list.className = 'rpg-encounter-exp';
-        const escape = (text) => String(text).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-        list.innerHTML = `<div class="rpg-encounter-exp-total">+${rewards.total} ${i18n.getTranslation('progression.exp') || 'EXP'}</div>`
-            + rewards.enemies.map(e => `<div>${escape(e.name)} <span>(${lvl} ${e.level})</span> +${e.exp}</div>`).join('');
-        overScreen.querySelector('h2')?.after(list);
     }
 
     /**
@@ -1226,200 +967,6 @@ export class EncounterModal {
     }
 
     /**
-     * Shows the combat over screen
-     * @param {string} result - Combat result ('victory', 'defeat', 'fled', 'interrupted')
-     */
-    showCombatOverScreen(result) {
-        const mainContent = this.modal.querySelector('#rpg-encounter-main');
-        if (!mainContent) return;
-
-        const resultIcons = {
-            victory: 'fa-trophy',
-            defeat: 'fa-skull-crossbones',
-            fled: 'fa-person-running',
-            interrupted: 'fa-flag-checkered'
-        };
-
-        const resultColors = {
-            victory: '#4caf50',
-            defeat: '#e94560',
-            fled: '#ff9800',
-            interrupted: '#888'
-        };
-
-        const resultTexts = {
-            victory: i18n.getTranslation('encounter.ui.result.victory') || 'Victory',
-            defeat: i18n.getTranslation('encounter.ui.result.defeat') || 'Defeat',
-            fled: i18n.getTranslation('encounter.ui.result.fled') || 'Fled',
-            interrupted: i18n.getTranslation('encounter.ui.result.interrupted') || 'Interrupted'
-        };
-
-        const icon = resultIcons[result] || 'fa-flag-checkered';
-        const color = resultColors[result] || '#888';
-        const text = resultTexts[result] || result;
-
-        mainContent.innerHTML = `
-            <div class="rpg-encounter-over" style="text-align: center; padding: 40px 20px;">
-                <i class="fa-solid ${icon}" style="font-size: 72px; color: ${color}; margin-bottom: 24px;"></i>
-                <h2 style="font-size: 32px; margin-bottom: 16px; text-transform: uppercase;">${text}</h2>
-                <p style="font-size: 18px; margin-bottom: 32px; opacity: 0.8;">${i18n.getTranslation('encounter.ui.generatingCombatSummary') || 'Generating combat summary...'}</p>
-                <div class="rpg-encounter-loading" style="display: flex; justify-content: center; align-items: center; gap: 12px;">
-                    <i class="fa-solid fa-spinner fa-spin" style="font-size: 24px;"></i>
-                    <span>${i18n.getTranslation('encounter.ui.pleaseWait') || 'Please wait...'}</span>
-                </div>
-            </div>
-        `;
-    }
-
-    /**
-     * Updates the combat over screen after summary is added
-     * @param {boolean} success - Whether summary was added successfully
-     * @param {string} speakerName - Name of character who narrated (optional)
-     */
-    updateCombatOverScreen(success, speakerName = '') {
-        const mainContent = this.modal.querySelector('#rpg-encounter-main');
-        if (!mainContent) return;
-
-        const overScreen = mainContent.querySelector('.rpg-encounter-over');
-        if (!overScreen) return;
-
-        if (success) {
-            const message = speakerName
-                ? (i18n.getTranslation('encounter.ui.combatSummaryAddedBy') || 'Combat summary has been added to the chat by {speakerName}.').replace('{speakerName}', speakerName)
-                : (i18n.getTranslation('encounter.ui.combatSummaryAdded') || 'Combat summary has been added to the chat.');
-            overScreen.querySelector('p').textContent = message;
-            overScreen.querySelector('.rpg-encounter-loading').innerHTML = `
-                <button id="rpg-encounter-close-final" class="rpg-encounter-submit-btn" style="font-size: 18px; padding: 12px 24px;">
-                    <i class="fa-solid fa-check"></i> ${i18n.getTranslation('encounter.ui.closeCombatWindow') || 'Close Combat Window'}
-                </button>
-            `;
-
-            // Add click handler for close button
-            const closeBtn = overScreen.querySelector('#rpg-encounter-close-final');
-            if (closeBtn) {
-                closeBtn.addEventListener('click', () => {
-                    this.close();
-                });
-            }
-        } else {
-            overScreen.querySelector('p').textContent = i18n.getTranslation('encounter.ui.errorGeneratingCombatSummary') || 'Error generating combat summary.';
-            overScreen.querySelector('.rpg-encounter-loading').innerHTML = `
-                <p style="color: #e94560;">${i18n.getTranslation('encounter.ui.failedToCreateSummary') || 'Failed to create summary. You can close this window.'}</p>
-                <button id="rpg-encounter-close-final" class="rpg-encounter-submit-btn" style="font-size: 18px; padding: 12px 24px; margin-top: 16px;">
-                    <i class="fa-solid fa-times"></i> ${i18n.getTranslation('encounter.ui.closeCombatWindow') || 'Close Combat Window'}
-                </button>
-            `;
-
-            // Add click handler for close button
-            const closeBtn = overScreen.querySelector('#rpg-encounter-close-final');
-            if (closeBtn) {
-                closeBtn.addEventListener('click', () => {
-                    this.close();
-                });
-            }
-        }
-    }
-
-    /**
-     * Shows a loading state
-     * @param {string} message - Loading message
-     */
-    showLoadingState(message) {
-        const loadingContent = this.modal.querySelector('#rpg-encounter-loading');
-        const mainContent = this.modal.querySelector('#rpg-encounter-main');
-
-        if (loadingContent) {
-            loadingContent.querySelector('p').textContent = message;
-            loadingContent.style.display = 'flex';
-        }
-
-        if (mainContent) {
-            mainContent.style.display = 'none';
-        }
-    }
-
-    /**
-     * Shows an error message
-     * @param {string} message - Error message
-     */
-    showError(message) {
-        const loadingContent = this.modal.querySelector('#rpg-encounter-loading');
-
-        if (loadingContent) {
-            loadingContent.innerHTML = `
-                <i class="fa-solid fa-exclamation-triangle" style="color: #e94560; font-size: 48px;"></i>
-                <p style="color: #e94560;">${message}</p>
-            `;
-        }
-    }
-
-    /**
-     * Shows an error message with a regenerate button
-     * @param {string} message - Error message to display
-     */
-    showErrorWithRegenerate(message) {
-        const loadingContent = this.modal.querySelector('#rpg-encounter-loading');
-        const combatContent = this.modal.querySelector('#rpg-encounter-content');
-
-        // Hide combat content if visible
-        if (combatContent) {
-            combatContent.style.display = 'none';
-        }
-
-        // Show error in loading area
-        if (loadingContent) {
-            loadingContent.style.display = 'flex';
-            loadingContent.innerHTML = `
-                <div class="rpg-encounter-error-box">
-                    <i class="fa-solid fa-exclamation-triangle" style="color: #e94560; font-size: 48px; margin-bottom: 1em;"></i>
-                    <p style="color: #e94560; font-weight: bold; font-size: 1.2em; margin: 0 0 0.5em 0;">${i18n.getTranslation('encounter.ui.wrongFormatDetected') || 'Wrong Format Detected'}</p>
-                    <p style="color: var(--rpg-text, #ccc); margin: 0 0 1.5em 0; max-width: 500px;">${message}</p>
-                    <div style="display: flex; gap: 1em;">
-                        <button id="rpg-error-regenerate" class="rpg-btn rpg-btn-primary">
-                            <i class="fa-solid fa-rotate-right"></i> ${i18n.getTranslation('encounter.ui.regenerate') || 'Regenerate'}
-                        </button>
-                        <button id="rpg-error-close" class="rpg-btn rpg-btn-secondary">
-                            <i class="fa-solid fa-times"></i> ${i18n.getTranslation('global.close') || 'Close'}
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            // Add event listeners
-            const regenerateBtn = loadingContent.querySelector('#rpg-error-regenerate');
-            const closeBtn = loadingContent.querySelector('#rpg-error-close');
-
-            if (regenerateBtn) {
-                regenerateBtn.addEventListener('click', () => this.regenerateLastRequest());
-            }
-
-            if (closeBtn) {
-                closeBtn.addEventListener('click', () => this.close());
-            }
-        }
-    }
-
-    /**
-     * Regenerates the last failed request
-     */
-    async regenerateLastRequest() {
-        if (!this.lastRequest) {
-            console.warn('[RPG Companion] No request to regenerate');
-            return;
-        }
-
-        // console.log('[RPG Companion] Regenerating request:', this.lastRequest.type);
-
-        if (this.lastRequest.type === 'init') {
-            // Retry initialization (initialize() sets its own busy flag)
-            await this.initialize();
-        } else if (this.lastRequest.type === 'action') {
-            // Retry action (processCombatAction() sets its own busy flag)
-            await this.processCombatAction(this.lastRequest.action);
-        }
-    }
-
-    /**
      * Apply environment-based visual styling to the modal
      * @param {object} styleNotes - Style information from the AI
      */
@@ -1450,24 +997,10 @@ export class EncounterModal {
 
         // console.log('[RPG Companion] Applied environment styling:', styleNotes);
     }
-
-    /**
-     * Closes the modal and resets encounter state
-     */
-    close() {
-        if (this.modal) {
-            this.modal.classList.remove('is-open');
-            resetEncounter();
-        }
-    }
 }
 
-// Export singleton instance
 export const encounterModal = new EncounterModal();
 
-/**
- * Opens the encounter modal
- */
 export function openEncounterModal() {
     encounterModal.open();
 }

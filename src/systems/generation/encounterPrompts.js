@@ -75,11 +75,93 @@ async function getCharactersInfo() {
 }
 
 /**
- * Builds the initial encounter setup prompt
- * This asks the model to generate all combat stats and setup data
+ * The stat block format and budget the set-up call asks for.
+ * See docs/COMBAT_DESIGN.md §3, §4, §7 and §10.
+ */
+export function buildStatBlockInstructions(userName, setup = {}) {
+    const level = Math.max(1, Math.floor(setup.level) || 1);
+    const b = setup.budgets || {};
+    let text = `Based on everything above, set up the fight. Work out who fights alongside ${userName} (if anyone) and who the enemies are, and write a stat block for each of them. ${userName} already has a character sheet; do NOT include ${userName}.\n\n`;
+    if (setup.playerSheet) {
+        text += `${userName}'s sheet, for scale:\n<sheet>\n${setup.playerSheet}\n</sheet>\n\n`;
+    }
+    text += `Return ONLY a JSON object:
+{
+  "party": [ /* allies fighting with ${userName}; may be empty */ ],
+  "enemies": [ /* everyone fighting against ${userName} */ ],
+  "environment": "One or two sentences describing the battlefield",
+  "styleNotes": {
+    "environmentType": "forest|dungeon|desert|cave|city|ruins|snow|water|castle|wasteland|plains|mountains|swamp|volcanic|spaceship|mansion",
+    "atmosphere": "bright|dark|foggy|stormy|calm|eerie|chaotic|peaceful",
+    "timeOfDay": "dawn|day|dusk|night|twilight",
+    "weather": "clear|rainy|snowy|windy|stormy|overcast"
+  }
+}
+
+Each stat block:
+{
+  "name": "Goblin Archer",
+  "level": ${level},
+  "tier": "minion|standard|elite|boss",
+  "description": "One sentence: what they look like and how they fight",
+  "sprite": "one emoji",
+  "attributes": { "str": 10, "dex": 12, "con": 10 },
+  "bought": { "pd": 1 },
+  "resistances": { "fire": "weak" },
+  "abilities": [
+    {
+      "name": "Shortbow",
+      "description": "Flavour text",
+      "target": "one-enemy",
+      "roll": "attack",
+      "effects": [ { "type": "damage", "dice": 3, "damageType": "pierce" } ],
+      "advantages": [],
+      "limitations": []
+    }
+  ]
+}
+
+Rules for stat blocks:
+- attributes: 10 is an ordinary adult, 13 capable, 15 very capable, 20 exceptional; there is no cap. STR adds damage and physical defence, DEX gives accuracy, defence and speed (actions per turn), CON gives HP, END and elemental defence.
+- bought (optional): extra hp, end, rec, ocv (accuracy), dcv (defence), pd (physical defence), ed (elemental defence), spd (actions per turn; 1 extra is a lot).
+- resistances (optional): damage type -> "resistant" (half), "immune" (none) or "weak" (x1.5).
+- tier: minion = fodder that comes in groups, standard = an ordinary fighter, elite = a dangerous individual, boss = a big threat meant for a whole party.
+- level: on ${userName}'s scale (${userName} is level ${level}). An even match is the same level; judge it from how dangerous they are in the story.
+- abilities: 1 to 3 per combatant. Everyone can already Strike, Dodge, Recover and Flee, so don't list those.
+  - target: self, one-ally, one-enemy, all-allies, all-enemies, everyone
+  - roll: "attack" (must hit; the target can dodge) or "automatic" (buffs, heals, auras)
+  - damageType: blunt, pierce, slash (physical) or fire, water, earth, air, ice, lightning, poison (elemental). "addStr": true on physical attacks adds the user's strength.
+  - effects:
+    {"type": "damage", "dice": N, "flat": 0, "damageType": "slash", "addStr": true}
+    {"type": "heal", "dice": N}
+    {"type": "shield", "amount": N, "duration": phases}
+    {"type": "status", "status": {"template": "overTime", "name": "Burning", "dice": 1, "damageType": "fire", "duration": 3}}
+    {"type": "status", "status": {"template": "overTime", "name": "Regenerating", "dice": 1, "heal": true, "duration": 3}}
+    {"type": "status", "status": {"template": "modifier", "name": "Weakened", "stat": "ocv|dcv|pd|ed|spd|damage|str|dex|con", "amount": -2, "duration": 3}}
+    {"type": "status", "status": {"template": "incapacitate", "name": "Stunned", "duration": 1}}
+    {"type": "status", "status": {"template": "taunt", "name": "Provoked", "duration": 2}}
+    {"type": "cleanse", "category": "overTime|debuff|buff|incapacitate"}
+    {"type": "restoreEnd", "amount": N}
+  - advantages (optional): "armorPiercing", {"id": "lifesteal", "percent": 50}, {"id": "accurate", "levels": 1}, "noEnd"
+  - limitations (optional): {"id": "charges", "uses": 2}, "doubleEnd", "itemBased", "slow"
+- Points: every stat block is worth points (attributes 1 per point above 10, a damage die 5, a healing die 10; the strongest ability costs full price and each other one a fifth; area targets double an ability's cost). Stay within the budget for each tier at level ${level}: minion ${b.minion ?? '~20'}, standard ${b.standard ?? '~23'}, elite ${b.elite ?? '~30'}, boss ${b.boss ?? '~40'} points${setup.perLevel ? `, plus about ${setup.perLevel} per level above ${level}` : ''}. Anything over budget is scaled down automatically, so spend the points on what makes each enemy distinct.
+- Typical main attacks: minions 2-3 dice, standard 3-4, elite 4-5, bosses 5-7.
+
+Return ONLY the JSON object, no other text.`;
+    return text;
+}
+
+/**
+ * Builds the encounter set-up prompt: the scene, then a request for stat
+ * blocks (allies and enemies) in the combat engine's format.
+ * @param {object} [setup]
+ * @param {string} [setup.playerSheet] - the player's sheet in plain text (for scale)
+ * @param {number} [setup.level] - the player's level
+ * @param {object} [setup.budgets] - { minion, standard, elite, boss } points at the player's level
+ * @param {number} [setup.perLevel] - extra points per level of a standard enemy
  * @returns {Promise<Array>} Message array for the API
  */
-export async function buildEncounterInitPrompt() {
+export async function buildEncounterInitPrompt(setup = {}) {
     const context = getContext();
     const userName = context.name1;
     const depth = extensionSettings.encounterSettings?.historyDepth || 8;
@@ -258,63 +340,7 @@ export async function buildEncounterInitPrompt() {
     initInstruction += `</context>\n\n`;
 
     initInstruction += `The combat starts now.\n\n`;
-    initInstruction += `Based on everything above, generate the initial combat state. Analyze who is in the party fighting alongside ${userName} (if anyone), and who the enemies are. Replace placeholders in [brackets] and X with actual values. Return ONLY a JSON object with the following structure:\n\n`;
-    initInstruction += `FORMAT:\n`;
-    initInstruction += `{\n`;
-    initInstruction += `  "party": [\n`;
-    initInstruction += `    {\n`;
-    initInstruction += `      "name": "${userName}",\n`;
-    initInstruction += `      "hp": X,\n`;
-    initInstruction += `      "maxHp": X,\n`;
-    initInstruction += `      "attacks": [\n`;
-    initInstruction += `        {"name": "Attack", "type": "single-target|AoE|both"},\n`;
-    initInstruction += `        {"name": "Skill1", "type": "single-target|AoE|both"}\n`;
-    initInstruction += `      ],\n`;
-    initInstruction += `      "items": ["Item Name x3", "Another Item x1"],\n`;
-    initInstruction += `      "statuses": [],\n`;
-    initInstruction += `      "isPlayer": true\n`;
-    initInstruction += `    }\n`;
-    initInstruction += `    // Add other party members here if they exist in the context, changing isPlayer to false for them.\n`;
-    initInstruction += `  ],\n`;
-    initInstruction += `  "enemies": [\n`;
-    initInstruction += `    {\n`;
-    initInstruction += `      "name": "Enemy Name",\n`;
-    initInstruction += `      "level": X,\n`;
-    initInstruction += `      "hp": X,\n`;
-    initInstruction += `      "maxHp": X,\n`;
-    initInstruction += `      "attacks": [\n`;
-    initInstruction += `        {"name": "Attack1", "type": "single-target|AoE|both"},\n`;
-    initInstruction += `        {"name": "Attack2", "type": "single-target|AoE|both"}\n`;
-    initInstruction += `      ],\n`;
-    initInstruction += `      "statuses": [],\n`;
-    initInstruction += `      "description": "Brief enemy description",\n`;
-    initInstruction += `      "sprite": "emoji or brief visual description"\n`;
-    initInstruction += `    }\n`;
-    initInstruction += `    // Add all enemies participating in this combat\n`;
-    initInstruction += `  ],\n`;
-    initInstruction += `  "environment": "Brief description of the combat environment",\n`;
-    initInstruction += `  "styleNotes": {\n`;
-    initInstruction += `    "environmentType": "forest|dungeon|desert|cave|city|ruins|snow|water|castle|wasteland|plains|mountains|swamp|volcanic|spaceship|mansion",\n`;
-    initInstruction += `    "atmosphere": "bright|dark|foggy|stormy|calm|eerie|chaotic|peaceful",\n`;
-    initInstruction += `    "timeOfDay": "dawn|day|dusk|night|twilight",\n`;
-    initInstruction += `    "weather": "clear|rainy|snowy|windy|stormy|overcast"\n`;
-    initInstruction += `  }\n`;
-    initInstruction += `}\n\n`;
-    initInstruction += `IMPORTANT NOTES:\n`;
-    initInstruction += `- For attacks array: Each attack must be an object with "name" and "type" properties\n`;
-    initInstruction += `  - "single-target": Can only target one character (enemy or ally)\n`;
-    initInstruction += `  - "AoE": Area of Effect - targets all enemies, but some AoE attacks (like storms, explosions) can also harm allies if the attack is indiscriminate\n`;
-    initInstruction += `  - "both": Player can choose to target a single enemy OR use as AoE\n`;
-    initInstruction += `- For items array: Include quantities using format "Item Name xN" (e.g., "Health Potion x3", "Bomb x1")\n`;
-    initInstruction += `  - If only one item exists, you can use "Item Name x1" or just "Item Name"\n`;
-    initInstruction += `  - Items will be consumed when used - the quantity will decrease in future turns\n`;
-    initInstruction += `- Statuses array: May start empty, but don't have to if characters applied them before the combat\n`;
-    initInstruction += `  - Each status has a format: {"name": "Status Name", "emoji": "💀", "duration": X}\n`;
-    initInstruction += `  - Examples: Poisoned (🧪), Burning (🔥), Blessed (✨), Stunned (💫), Weakened (⬇️), Strengthened (⬆️)\n\n`;
-    initInstruction += `The styleNotes object will be used to visually style the combat window - choose ONE value from each category that best fits the environment described in the chat history.\n\n`;
-    initInstruction += `Use the user's current stats, inventory, and skills to populate the party data. For ${userName}'s attacks array, include their available skills. For items, include usable items from their inventory WITH QUANTITIES (e.g., "Health Potion x3"). Set HP based on their current Health stat if available.\n\n`;
-    initInstruction += `Give every enemy a "level" on the same scale as ${userName}, who is level ${Math.max(1, Math.floor(extensionSettings.level) || 1)}: an evenly matched foe is the same level, weaker foes (minions, ordinary animals) are lower, and stronger ones (veterans, bosses, monsters) are higher. Judge it from how dangerous the enemy is in the story, not from ${userName}'s level alone.\n\n`;
-    initInstruction += `Ensure all party members and enemies have realistic HP values based on the setting and their descriptions. Return ONLY the JSON object, no other text.`;
+    initInstruction += buildStatBlockInstructions(userName, setup);
 
     // Only add the instruction if it has meaningful content
     if (initInstruction.trim()) {
@@ -328,262 +354,6 @@ export async function buildEncounterInitPrompt() {
     if (messages.length === 0 || messages.every(m => !m.content || !m.content.trim())) {
         throw new Error('Unable to build encounter prompt - no valid content available');
     }
-
-    return messages;
-}
-
-/**
- * Builds a combat action prompt
- * This is sent when the user takes an action in combat
- * @param {string} action - The action taken by the user
- * @param {object} combatStats - Current combat statistics
- * @returns {Array} Message array for the API
- */
-export async function buildCombatActionPrompt(action, combatStats) {
-    const context = getContext();
-    const userName = context.name1;
-    const depth = extensionSettings.encounterSettings?.historyDepth || 8;
-
-    // Get narrative style from settings
-    const narrativeStyle = extensionSettings.encounterSettings?.combatNarrative || {};
-    const tense = narrativeStyle.tense || 'present';
-    const person = narrativeStyle.person || 'third';
-    const narration = narrativeStyle.narration || 'omniscient';
-    const pov = narrativeStyle.pov || 'narrator';
-
-    const messages = [];
-
-    // Build system message with setting info
-    let systemMessage = `You are the game master managing this combat encounter. You must not play as ${userName} - only describe what happens as a result of their actions/dialogues and control NPCs/enemies.\n\n`;
-
-    // Add setting information
-    systemMessage += `Here is some information for you about the setting:\n`;
-    systemMessage += `<setting>\n`;
-
-    // Get world info
-    let worldInfoAdded = false;
-    try {
-        const getWorldInfoFn = context.getWorldInfoPrompt || window.getWorldInfoPrompt;
-        const currentChat = context.chat || chat;
-
-        if (typeof getWorldInfoFn === 'function' && currentChat && currentChat.length > 0) {
-            const chatForWI = currentChat.map(x => x.mes || x.message || x).filter(m => m && typeof m === 'string');
-            const result = await getWorldInfoFn(chatForWI, 8000, false);
-            const worldInfoString = result?.worldInfoString || result;
-
-            if (worldInfoString && typeof worldInfoString === 'string' && worldInfoString.trim()) {
-                systemMessage += worldInfoString.trim();
-                worldInfoAdded = true;
-            }
-        }
-    } catch (e) {
-        console.warn('[RPG Companion] Failed to get world info for combat action:', e);
-    }
-
-    if (!worldInfoAdded && context.activatedWorldInfo && Array.isArray(context.activatedWorldInfo) && context.activatedWorldInfo.length > 0) {
-        context.activatedWorldInfo.forEach((entry) => {
-            if (entry && entry.content) {
-                systemMessage += `${entry.content}\n\n`;
-                worldInfoAdded = true;
-            }
-        });
-    }
-
-    if (!worldInfoAdded) {
-        systemMessage += 'No world information available.';
-    }
-
-    systemMessage += `\n</setting>\n\n`;
-
-    // Add character information
-    const charactersInfo = await getCharactersInfo();
-    if (charactersInfo) {
-        systemMessage += `Here is the information available to you about the characters:\n`;
-        systemMessage += `<characters>\n${charactersInfo}</characters>\n\n`;
-    }
-
-    // Add persona info
-    if (context.name1) {
-        systemMessage += `The protagonist is:\n`;
-        systemMessage += `<persona>\n`;
-
-        // Use substituteParams to get {{persona}} like in initial encounter
-        try {
-            const personaText = substituteParams('{{persona}}');
-            if (personaText && personaText !== '{{persona}}') {
-                systemMessage += personaText;
-            } else {
-                systemMessage += `Name: ${context.name1}\n`;
-                if (extensionSettings.userStats?.personaDescription) {
-                    systemMessage += `${extensionSettings.userStats.personaDescription}\n`;
-                }
-            }
-        } catch (e) {
-            systemMessage += `Name: ${context.name1}\n`;
-            if (extensionSettings.userStats?.personaDescription) {
-                systemMessage += `${extensionSettings.userStats.personaDescription}\n`;
-            }
-        }
-
-        // Add ONLY classic stats/attributes if enabled
-        if (extensionSettings.classicStats) {
-            const attributesString = buildAttributesString();
-            if (attributesString) {
-                systemMessage += `\nAttributes: ${attributesString}\n`;
-            }
-        }
-
-        systemMessage += `</persona>\n\n`;
-    }
-
-    messages.push({
-        role: 'system',
-        content: systemMessage
-    });
-
-    // Add recent chat history for context - append as user/assistant messages like initial encounter
-    const currentChat = context.chat || chat;
-    if (currentChat && currentChat.length > 0) {
-        const recentMessages = currentChat.slice(-depth);
-
-        for (const message of recentMessages) {
-            const content = message.mes?.trim();
-            // Skip empty messages
-            if (content) {
-                messages.push({
-                    role: message.is_user ? 'user' : 'assistant',
-                    content: content
-                });
-            }
-        }
-    }
-
-    // Add combat log as plain text (previous actions)
-    if (currentEncounter.encounterLog && currentEncounter.encounterLog.length > 0) {
-        let combatHistory = 'Previous Combat Actions:\n';
-        currentEncounter.encounterLog.forEach(entry => {
-            combatHistory += `- ${entry.action}\n`;
-            if (entry.result) {
-                combatHistory += `  ${entry.result}\n`;
-            }
-        });
-
-        messages.push({
-            role: 'user',
-            content: combatHistory
-        });
-    }
-
-    // Add current combat state with FULL information (but tell AI not to regenerate static parts)
-    let stateMessage = `Current Combat State:\n`;
-    stateMessage += `Environment: ${combatStats.environment || 'Unknown location'}\n\n`;
-
-    stateMessage += `Party Members:\n`;
-    combatStats.party.forEach(member => {
-        stateMessage += `- ${member.name}${member.isPlayer ? ' (Player)' : ''}: ${member.hp}/${member.maxHp} HP\n`;
-
-        // For the player, use playerActions if available, otherwise fall back to member data
-        if (member.isPlayer && currentEncounter.playerActions) {
-            if (currentEncounter.playerActions.attacks && currentEncounter.playerActions.attacks.length > 0) {
-                stateMessage += `  Attacks: ${currentEncounter.playerActions.attacks.map(a => typeof a === 'string' ? a : a.name).join(', ')}\n`;
-            }
-            if (currentEncounter.playerActions.items && currentEncounter.playerActions.items.length > 0) {
-                stateMessage += `  Items: ${currentEncounter.playerActions.items.join(', ')}\n`;
-            }
-        } else {
-            // For non-player party members, use their own data
-            if (member.attacks && member.attacks.length > 0) {
-                stateMessage += `  Attacks: ${member.attacks.map(a => typeof a === 'string' ? a : a.name).join(', ')}\n`;
-            }
-            if (member.items && member.items.length > 0) {
-                stateMessage += `  Items: ${member.items.join(', ')}\n`;
-            }
-        }
-
-        if (member.statuses && member.statuses.length > 0) {
-            const validStatuses = member.statuses.filter(s => s && (s.emoji || s.name));
-            if (validStatuses.length > 0) {
-                stateMessage += `  Status Effects: ${validStatuses.map(s => `${s.emoji || ''} ${s.name || ''}`.trim()).join(', ')}\n`;
-            }
-        }
-    });
-
-    stateMessage += `\nEnemies:\n`;
-    combatStats.enemies.forEach(enemy => {
-        stateMessage += `- ${enemy.name} (${enemy.sprite || ''})${enemy.level ? `, level ${enemy.level}` : ''}: ${enemy.hp}/${enemy.maxHp} HP\n`;
-        if (enemy.description) {
-            stateMessage += `  ${enemy.description}\n`;
-        }
-        if (enemy.attacks && enemy.attacks.length > 0) {
-            stateMessage += `  Attacks: ${enemy.attacks.map(a => typeof a === 'string' ? a : a.name).join(', ')}\n`;
-        }
-        if (enemy.statuses && enemy.statuses.length > 0) {
-            const validStatuses = enemy.statuses.filter(s => s && (s.emoji || s.name));
-            if (validStatuses.length > 0) {
-                stateMessage += `  Status Effects: ${validStatuses.map(s => `${s.emoji || ''} ${s.name || ''}`.trim()).join(', ')}\n`;
-            }
-        }
-    });
-
-    stateMessage += `\n${userName}'s Action: ${action}\n\n`;
-    stateMessage += `Respond with the exact JSON object as below, containing ONLY these specified values. Remember to consider the user's party and their moves. DO NOT regenerate character descriptions, sprites, or environment.\n\n`;
-    stateMessage += `IMPORTANT - Update ${userName}'s attacks and items arrays based on what happens in combat:\n`;
-    stateMessage += `- ${userName}'s action is already specified above - do NOT regenerate it. Only update ${userName}'s attacks/items arrays if their action consumed resources (used item, lost ability, etc.).\n`;
-    stateMessage += `- If they use an item, decrement its quantity ("Health Potion x3" becomes "Health Potion x2"). If quantity reaches 0, remove the item entirely.\n`;
-    stateMessage += `- If they gain or lose an ability due to status effects, add or remove it from their attacks array.\n`;
-    stateMessage += `  Examples: Disarmed → remove weapon attacks. Bound → remove all attacks or set to []. Freed → restore attacks.\n`;
-    stateMessage += `- If they pick up a weapon/item during combat, add it to their items or attacks array.\n`;
-    stateMessage += `- If environmental changes enable new actions (near water → "Splash Attack"), add them. If they disable actions (fire goes out → remove "Ignite"), remove them.\n`;
-    stateMessage += `- Status effects should persist and decrease duration each turn. Remove statuses when duration reaches 0.\n\n`;
-    stateMessage += `FORMAT:\n`;
-    stateMessage += `{\n`;
-    stateMessage += `  "combatStats": {\n`;
-    stateMessage += `    "party": [\n`;
-    stateMessage += `      {\n`;
-    stateMessage += `        "name": "Name",\n`;
-    stateMessage += `        "hp": X,\n`;
-    stateMessage += `        "maxHp": X,\n`;
-    stateMessage += `        "statuses": [{"name": "Status", "emoji": "💀", "duration": X}],\n`;
-    stateMessage += `        "isPlayer": true|false\n`;
-    stateMessage += `      }\n`;
-    stateMessage += `    ],\n`;
-    stateMessage += `    "enemies": [\n`;
-    stateMessage += `      {\n`;
-    stateMessage += `        "name": "Name",\n`;
-    stateMessage += `        "hp": X,\n`;
-    stateMessage += `        "maxHp": X,\n`;
-    stateMessage += `        "statuses": [{"name": "Status", "emoji": "💀", "duration": X}]\n`;
-    stateMessage += `      }\n`;
-    stateMessage += `    ]\n`;
-    stateMessage += `  },\n`;
-    stateMessage += `  "playerActions": {\n`;
-    stateMessage += `    "attacks": [{"name": "Attack", "type": "single-target|AoE|both"}],\n`;
-    stateMessage += `    "items": ["Item Name x3", "Another Item x1"]\n`;
-    stateMessage += `  },\n`;
-    stateMessage += `  "enemyActions": [{ "enemyName": "Name", "action": "what they do", "target": "target" }],\n`;
-    stateMessage += `  "partyActions": [{ "memberName": "Name", "action": "what they do", "target": "target" }],\n`;
-    stateMessage += `  "narrative": "The roleplay description of what happens"\n`;
-    stateMessage += `}\n\n`;
-    stateMessage += `If all enemies are defeated or escape: add "combatEnd": true, "result": "victory". If all party defeated: add "combatEnd": true, "result": "defeat". It's also possible for the encounter to be interrupted by external interference (e.g., an explosion knocks everyone out, sudden environmental catastrophe, third party intervention, etc.). If this occurs, add "combatEnd": true, "result": "interrupted". Each status (if applied) has a format: {"name": "Status Name", "emoji": "💀", "duration": X}.\n`;
-    stateMessage += `Scale combat difficulty appropriately: Powerful entities (gods, dragons, legendary creatures) should be formidable challenges requiring multiple rounds and strategic play. Weaker foes (common animals, basic enemies, minions) should be resolved more quickly, typically 2-4 rounds. Match HP damage and combat pacing to the narrative weight of the encounter. A wolf should not take 20 rounds to defeat, nor should a deity fall in one hit.\n`;
-    stateMessage += `For the narrative, write it with intent in ${tense} tense ${person}-person ${narration} from ${pov}'s point of view.\n`;
-
-    // Use custom combat narrative prompt if available
-    const customCombatPrompt = extensionSettings.customCombatNarrativePrompt;
-    if (customCombatPrompt) {
-        stateMessage += customCombatPrompt.replace(/{userName}/g, userName) + '\n';
-    } else {
-        stateMessage += `Build novel prose. Break patterns from your previous responses by varying sentence structures, rhythms, formats, and openings. Track whether a sentence shape, cadence, sensory detail, or a descriptor appeared recently, and replace it with a different one or skip it entirely. If you mentioned a physical feature, mannerism, or expression once, move on. Don't fixate on the same traits every turn. Well-placed humor, unconventional similes, and subverted turns of phrase are encouraged. Avoid GPTisms, purple prose, and anaphoras, especially the negatives with "no/not/wasn't/didn't." Refrain from describing actions or emotions via negation; focus on what does happen, not what doesn't. Absolutely no asterisks, ellipses, or em-dashes. Explicit content is allowed, no plot armor. Do not play for ${userName}. Keep your response length under 150 words. Never end on handover cues; finish naturally.\n`;
-        stateMessage += `CRITICAL: Do not repeat, echo, parrot, or restate distinctive words, phrases, and dialogues from the user's last message. If reacting to speech, show interpretation or response, not repetition.\n`;
-        stateMessage += `EXAMPLE: "Are you a gooner?" User asks.\n`;
-        stateMessage += `BAD: "Gooner?"\n`;
-        stateMessage += `GOOD: A flat look. "What type of question is that?"`;
-    }
-
-    messages.push({
-        role: 'user',
-        content: stateMessage
-    });
 
     return messages;
 }
@@ -687,14 +457,14 @@ export async function buildCombatSummaryPrompt(combatLog, result) {
     });
 
     let summaryMessage = `Combat has ended with result: ${result}\n\n`;
-    summaryMessage += `Full Combat Log:\n`;
-
-    combatLog.forEach((entry, index) => {
-        summaryMessage += `\nRound ${index + 1}:\n`;
-        summaryMessage += `${entry.action}\n`;
-        summaryMessage += `${entry.result}\n`;
-    });
-
+    summaryMessage += `Full combat log (the dice and numbers are final; describe what they mean, not the numbers themselves):\n`;
+    for (const entry of combatLog || []) {
+        if (typeof entry === 'string') {
+            summaryMessage += `${entry}\n`;
+        } else if (entry && typeof entry === 'object') {
+            summaryMessage += `${entry.action || ''}\n${entry.result || ''}\n`;
+        }
+    }
     summaryMessage += `\n\nProvide a narrative summary of the entire fight in a way that fits the style from the chat history. Start with [FIGHT CONCLUDED] on the first line, then provide the description.\n\n`;
     summaryMessage += `Write with intent in ${tense} tense ${person}-person ${narration} from ${pov}'s point of view.\n`;
     summaryMessage += `Build novel prose. Break patterns from your previous responses by varying sentence structures, rhythms, formats, and openings. If you last started with a narration, begin this one with dialogue; if with an action, switch to an internal thought. Track whether a sentence shape, cadence, sensory detail, or a descriptor appeared recently, and replace it with a different one or skip it entirely. If you mentioned a physical feature, mannerism, or expression once, move on. Don't fixate on the same traits every turn. Well-placed humor, unconventional similes, and subverted turns of phrase are encouraged. Avoid GPTisms, purple prose, and anaphoras, especially the negatives with "no/not/wasn't/didn't." Refrain from describing actions or emotions via negation; focus on what does happen, not what doesn't. Minimize asterisks, ellipses, and em-dashes. Explicit content is allowed. Never end on handover cues; finish naturally.\n\n`;

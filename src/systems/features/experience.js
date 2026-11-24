@@ -13,6 +13,7 @@
 
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../../popup.js';
 import { sheetPoints } from './sheet.js';
+import { TIERS } from '../mechanics/combat/catalog.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
@@ -107,7 +108,7 @@ export function completeQuest(kind, title) {
  * Works out EXP for the enemies of a finished encounter.
  * Enemies count as defeated when their HP is 0 or below; on a victory every
  * enemy counts (they were beaten even if they surrendered or ran).
- * @param {object[]} enemies - combat enemies ({name, hp, level})
+ * @param {object[]} enemies - combat enemies ({name, hp, level, tier})
  * @param {string} result - 'victory' | 'defeat' | 'fled' | 'interrupted'
  * @returns {{ total: number, enemies: {name: string, level: number, exp: number}[] }}
  */
@@ -117,7 +118,9 @@ export function encounterRewards(enemies, result) {
     const beaten = (enemies || []).filter(enemy => enemy && (result === 'victory' || Number(enemy.hp) <= 0));
     const rows = beaten.map(enemy => {
         const level = Math.max(1, Math.round(Number(enemy.level)) || playerLevel);
-        return { name: String(enemy.name || '?'), level, exp: enemyReward(level, playerLevel, settings) };
+        // Tougher tiers are worth more (minion ×0.5 … boss ×2, the tier's HP multiplier).
+        const tier = TIERS[enemy.tier] || TIERS.standard;
+        return { name: String(enemy.name || '?'), level, tier: enemy.tier || 'standard', exp: Math.max(1, Math.round(enemyReward(level, playerLevel, settings) * tier.hp)) };
     });
     return { total: rows.reduce((sum, row) => sum + row.exp, 0), enemies: rows };
 }

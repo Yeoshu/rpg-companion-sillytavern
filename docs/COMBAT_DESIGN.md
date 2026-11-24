@@ -7,6 +7,15 @@ Status: **agreed**. Built so far:
 - Step 2, the character sheet: `src/systems/features/sheet.js` (data, budget,
   inventory link, library) and `src/systems/ui/sheetEditor.js` (sheet editor
   and ability builder), opened from the CP badge in the panel.
+- Step 3, the combat window: `src/systems/ui/encounterUI.js` runs the fight on
+  the engine. The set-up call asks for stat blocks in the §10 format
+  (`buildStatBlockInstructions` in `encounterPrompts.js`), `roster.js`
+  validates and budget-scales them, then the pre-fight preview, the
+  timeline, the action bar with hit chances, the log, and the result screen
+  with tier-scaled EXP and the summary. You start at your tracker Health and
+  Energy. Not yet: per-phase narration, free-text actions, AI tactics,
+  matching and saving stat blocks (step 4), and writing HP, END and items
+  back to the tracker (step 5).
 
 Decisions on the open questions are at the end; balance changes found by
 simulation are marked in §2, §3 and §7.
