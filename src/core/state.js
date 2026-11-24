@@ -260,6 +260,8 @@ export let extensionSettings = {
     skillLevels: {}, // Per-chat skill levels, keyed by lowercase skill name
     exp: 0, // Per-chat EXP towards the next level
     characterPoints: 0, // Per-chat unspent character points
+    resolvedQuests: [], // Per-chat quests already completed/removed/answered (lowercase titles)
+    askAboutDroppedQuests: true, // Ask whether quests the tracker AI removes were completed
     progression: { // Tuning for EXP and character points (see src/systems/mechanics/progression.js)
         expBase: 100,
         mainQuestMin: 20,

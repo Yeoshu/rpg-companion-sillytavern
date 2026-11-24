@@ -476,6 +476,10 @@ async function initUI() {
         saveSettings();
         $(document).trigger('rpg:progressionChanged');
     });
+    $('#rpg-toggle-ask-dropped-quests').on('change', function() {
+        extensionSettings.askAboutDroppedQuests = $(this).prop('checked');
+        saveSettings();
+    });
     $('#rpg-progression-reset').on('click', function() {
         extensionSettings.progression = { ...DEFAULT_PROGRESSION };
         fillProgressionInputs();
@@ -1107,6 +1111,7 @@ async function initUI() {
     $('#rpg-toggle-randomized-plot').prop('checked', extensionSettings.enableRandomizedPlot ?? true);
     $('#rpg-toggle-natural-plot').prop('checked', extensionSettings.enableNaturalPlot ?? true);
     fillProgressionInputs();
+    $('#rpg-toggle-ask-dropped-quests').prop('checked', extensionSettings.askAboutDroppedQuests ?? true);
     $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);

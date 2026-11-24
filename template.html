@@ -673,6 +673,13 @@
                         <input type="number" class="rpg-input" data-progression="skillCost" min="1" step="1" />
                     </label>
                 </div>
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-ask-dropped-quests" />
+                    <span data-i18n-key="template.settingsModal.progression.askDropped">Ask when the tracker removes a quest</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.progression.askDroppedNote">
+                    When an AI tracker update drops a quest, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.
+                </small>
                 <button type="button" id="rpg-progression-reset" class="menu_button">
                     <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.settingsModal.progression.reset">Restore defaults</span>
                 </button>

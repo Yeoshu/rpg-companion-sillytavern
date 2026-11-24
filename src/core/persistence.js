@@ -728,6 +728,7 @@ export function saveChatData() {
         level: extensionSettings.level,
         exp: extensionSettings.exp || 0,
         characterPoints: extensionSettings.characterPoints || 0,
+        resolvedQuests: extensionSettings.resolvedQuests || [],
         queuedDiceRoll: queuedDiceRoll,
         quests: extensionSettings.quests,
         lastGeneratedData: lastGeneratedData,
@@ -1022,6 +1023,7 @@ export function loadChatData() {
     if (Number.isFinite(savedData?.level)) extensionSettings.level = savedData.level;
     extensionSettings.exp = Number(savedData?.exp) || 0;
     extensionSettings.characterPoints = Number(savedData?.characterPoints) || 0;
+    extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
 
     // Restore quests
     if (savedData?.quests) {

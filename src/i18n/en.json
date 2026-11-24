@@ -523,5 +523,14 @@
     "progression.cpLeft": "character points left",
     "progression.apply": "Apply",
     "quests.completeQuestTitle": "Complete quest (gain EXP)",
-    "encounter.ui.levelShort": "Lv"
+    "encounter.ui.levelShort": "Lv",
+    "template.settingsModal.progression.askDropped": "Ask when the tracker removes a quest",
+    "template.settingsModal.progression.askDroppedNote": "When an AI tracker update drops a quest, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.",
+    "progression.droppedTitle": "Quests removed by the tracker",
+    "progression.droppedQuestion": "Were any of these completed? Completed quests give EXP.",
+    "progression.mainQuest": "Main",
+    "progression.sideQuest": "Side",
+    "progression.ofBar": "of the EXP bar",
+    "progression.awardExp": "Award EXP",
+    "progression.notCompleted": "Not completed"
 }

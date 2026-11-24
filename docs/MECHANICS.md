@@ -114,7 +114,14 @@ pace at every level:
 | Enemy of your level defeated | 5% | 20 |
 
 Quests give EXP when you click their ✓ (Complete). ✗ removes a quest without
-EXP. Nothing is awarded when the tracker AI drops a quest by itself.
+EXP.
+
+When a tracker update from the AI drops a quest by itself, a dialog asks
+whether it was completed (a lone quest comes pre-ticked) and awards EXP for the
+ticked ones. The AI replacing the main quest counts as dropping it. Each quest
+is only asked about once per chat, so swipes and regenerations don't ask again;
+quests you completed or removed yourself are never asked about. This can be
+turned off in Settings → Progression.
 
 ### Enemies
 
@@ -154,5 +161,4 @@ Natural next steps for the system:
 
 - NPC attributes/skills, and opposed checks (both sides roll, compare margins).
 - Feeding encounter combat through the same rules instead of AI judgement.
-- Offering EXP when the tracker AI removes a quest by itself.
 - A "check" mode in the manual dice roller.

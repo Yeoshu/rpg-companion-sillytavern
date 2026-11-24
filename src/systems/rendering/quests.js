@@ -7,7 +7,7 @@ import { extensionSettings, $questsContainer, committedTrackerData, lastGenerate
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { isItemLocked, setItemLock } from '../generation/lockManager.js';
 import { i18n } from '../../core/i18n.js';
-import { completeQuest } from '../features/experience.js';
+import { completeQuest, markQuestResolved } from '../features/experience.js';
 
 /**
  * Syncs the current extensionSettings.quests to committedTrackerData.userStats
@@ -353,6 +353,8 @@ function attachQuestEventHandlers() {
         if ($(this).data('action') === 'complete-quest') {
             const title = field === 'main' ? questTitleOf(extensionSettings.quests.main) : questTitleOf(extensionSettings.quests.optional[index]);
             completeQuest(field === 'main' ? 'main' : 'side', title);
+        } else {
+            markQuestResolved(field === 'main' ? questTitleOf(extensionSettings.quests.main) : questTitleOf(extensionSettings.quests.optional[index]));
         }
 
         if (field === 'main') {

@@ -3604,3 +3604,37 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
     width: 5em;
     flex: none;
 }
+
+/* Dialog: quests dropped by the tracker */
+.rpg-quest-review {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5em;
+    text-align: left;
+}
+
+.rpg-quest-review h3,
+.rpg-quest-review p {
+    margin: 0;
+}
+
+.rpg-quest-review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35em;
+}
+
+.rpg-quest-review-kind {
+    margin-right: 0.3em;
+    padding: 0 0.4em;
+    color: var(--SmartThemeQuoteColor);
+    font-size: 0.8em;
+    font-weight: 600;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+}
+
+.rpg-quest-review small {
+    display: block;
+    opacity: 0.6;
+}
