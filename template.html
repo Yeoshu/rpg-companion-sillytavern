@@ -705,6 +705,10 @@
                         <input type="number" class="rpg-input" data-combat="apCapPerLevel" min="0" step="1" />
                     </label>
                     <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.budgetTolerance">Scale AI enemies above budget ×</span>
+                        <input type="number" class="rpg-input" data-combat="budgetTolerance" min="1" step="0.05" />
+                    </label>
+                    <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.sheet.roleStr">Strength attribute</span>
                         <select class="rpg-input" data-combat-role="str"></select>
                     </label>
@@ -716,6 +720,18 @@
                         <span data-i18n-key="template.settingsModal.sheet.roleCon">Toughness attribute</span>
                         <select class="rpg-input" data-combat-role="con"></select>
                     </label>
+                </div>
+                <small class="rpg-note" data-i18n-key="template.settingsModal.sheet.tiersNote">
+                    Enemy tiers: budget × the level budget, and × HP (also × EXP). Defaults were tuned by simulation; see docs/COMBAT_DESIGN.md §7.
+                </small>
+                <div class="rpg-progression-grid rpg-tier-grid">
+                    <span></span>
+                    <span data-i18n-key="template.settingsModal.sheet.tierBudget">Budget ×</span>
+                    <span data-i18n-key="template.settingsModal.sheet.tierHp">HP ×</span>
+                    <span>Minion</span><input type="number" class="rpg-input" data-combat-tier="minion.budget" min="0.05" step="0.05" /><input type="number" class="rpg-input" data-combat-tier="minion.hp" min="0.1" step="0.1" />
+                    <span>Standard</span><input type="number" class="rpg-input" data-combat-tier="standard.budget" min="0.05" step="0.05" /><input type="number" class="rpg-input" data-combat-tier="standard.hp" min="0.1" step="0.1" />
+                    <span>Elite</span><input type="number" class="rpg-input" data-combat-tier="elite.budget" min="0.05" step="0.05" /><input type="number" class="rpg-input" data-combat-tier="elite.hp" min="0.1" step="0.1" />
+                    <span>Boss</span><input type="number" class="rpg-input" data-combat-tier="boss.budget" min="0.05" step="0.05" /><input type="number" class="rpg-input" data-combat-tier="boss.hp" min="0.1" step="0.1" />
                 </div>
                 <button type="button" id="rpg-combat-reset" class="menu_button">
                     <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.settingsModal.progression.reset">Restore defaults</span>
@@ -840,14 +856,54 @@
                     <small data-i18n-key="template.settingsModal.advanced.encounterHistoryDepthNote">Number of recent messages to include in combat initialization.</small>
                 </div>
 
+                <div class="rpg-setting-row">
+                    <label for="rpg-encounter-narration" data-i18n-key="template.settingsModal.advanced.encounterNarration">Combat narration:</label>
+                    <select id="rpg-encounter-narration" class="rpg-input">
+                        <option value="phase" data-i18n-key="template.settingsModal.advanced.encounterNarrationPhase">Narrate each of my turns</option>
+                        <option value="end" data-i18n-key="template.settingsModal.advanced.encounterNarrationEnd">Only the summary at the end (fewer AI calls)</option>
+                    </select>
+                </div>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-ai-tactics" />
+                    <span data-i18n-key="template.settingsModal.advanced.aiTactics">AI chooses enemy actions</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.advanced.aiTacticsNote">
+                    One AI call per enemy action, so enemies act in character. Off: enemies use fast local tactics.
+                </small>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-equal-speed" />
+                    <span data-i18n-key="template.settingsModal.advanced.equalSpeed">Equal speed in combat</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.advanced.equalSpeedNote">
+                    Everyone acts once per turn in DEX order, instead of faster characters acting more often.
+                </small>
+
                 <label class="checkbox_label">
                     <input type="checkbox" id="rpg-toggle-autosave-logs" />
-                    <span data-i18n-key="template.settingsModal.advanced.autoSaveCombatLogs">Auto-save Combat Logs</span>
+                    <span data-i18n-key="template.settingsModal.advanced.autoSaveCombatLogs">Keep combat logs in the chat</span>
                 </label>
                 <small class="rpg-note rpg-note-indented"
                     data-i18n-key="template.settingsModal.advanced.autoSaveCombatLogsNote">
-                    Save detailed combat logs to file for future reference and analysis.
+                    The last 10 fights of each chat, with their full log and summary. They can be exported as files.
                 </small>
+                <button type="button" id="rpg-view-combat-logs" class="menu_button">
+                    <i class="fa-solid fa-scroll"></i>&nbsp;<span data-i18n-key="template.settingsModal.advanced.viewCombatLogs">View combat logs</span>
+                </button>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-sync-tracker" />
+                    <span data-i18n-key="template.settingsModal.advanced.syncTracker">Update the tracker after a fight</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.advanced.syncTrackerNote">
+                    Health and Energy are set from your HP and END when the fight ends, and used items come off your inventory.
+                </small>
+
+                <div class="rpg-setting-row">
+                    <label for="rpg-combat-ai-delay" data-i18n-key="template.settingsModal.advanced.aiDelay">Pause between enemy actions (ms):</label>
+                    <input type="number" id="rpg-combat-ai-delay" class="rpg-input" min="0" max="5000" step="100" data-combat="aiDelay" />
+                </div>
 
                 <div class="rpg-setting-row" style="margin-top: 16px;">
                     <label for="rpg-skip-guided-mode"

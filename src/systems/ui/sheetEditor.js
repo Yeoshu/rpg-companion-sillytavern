@@ -26,6 +26,7 @@ import {
     getCombatSettings, getLibrary, importToLibrary, itemStock, partsFromSnapshot, playerName, saveToLibrary,
     sheetPoints, snapshotFrom
 } from '../features/sheet.js';
+import { openStatBlockManager } from './statBlockManager.js';
 
 function t(key, fallback) {
     return i18n.getTranslation(key) || fallback;
@@ -172,6 +173,7 @@ export async function openSheetEditor() {
                     <input type="text" class="text_pole" data-field="library-name" value="${esc(playerName())}" placeholder="${esc(t('sheet.name', 'Name'))}">
                     <button type="button" class="menu_button" data-action="library-save"><i class="fa-solid fa-floppy-disk"></i> ${esc(t('sheet.saveNew', 'Save as new'))}</button>
                     <button type="button" class="menu_button" data-action="library-import"><i class="fa-solid fa-file-import"></i> ${esc(t('sheet.import', 'Import'))}</button>
+                    <button type="button" class="menu_button" data-action="npc-manager" title="${esc(t('npc.manageHint', 'Stored stat blocks of recurring characters'))}"><i class="fa-solid fa-users-viewfinder"></i> ${esc(t('npc.manage', 'Characters'))}</button>
                     <input type="file" accept=".json,application/json" data-field="library-file" hidden>
                 </div>
                 <div class="rpg-sheet-library">${libraryRows()}</div>
@@ -366,6 +368,7 @@ export async function openSheetEditor() {
             $root.find('.rpg-sheet-library').html(libraryRows());
         }
     });
+    $root.on('click', '[data-action="npc-manager"]', () => openStatBlockManager());
     $root.on('click', '[data-action="library-import"]', () => $root.find('[data-field="library-file"]').trigger('click'));
     $root.on('change', '[data-field="library-file"]', async function () {
         const file = this.files?.[0];

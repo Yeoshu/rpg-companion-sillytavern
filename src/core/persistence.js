@@ -25,7 +25,7 @@ import { validateStoredInventory, cleanItemString } from '../utils/security.js';
 import { migrateToV3JSON } from '../utils/jsonMigration.js';
 
 const extensionName = 'third-party/rpg-companion-sillytavern';
-const CURRENT_SETTINGS_VERSION = 6;
+const CURRENT_SETTINGS_VERSION = 7;
 
 const DEFAULT_USER_STATS = {
     health: 100,
@@ -636,6 +636,14 @@ export function loadSettings() {
                 settingsChanged = true;
             }
 
+            // Migration to version 7: combat logs are now kept per chat; the old
+            // "auto-save" switch never did anything, so turn it on.
+            if (currentVersion < 7) {
+                if (extensionSettings.encounterSettings) extensionSettings.encounterSettings.autoSaveLogs = true;
+                extensionSettings.settingsVersion = 7;
+                settingsChanged = true;
+            }
+
             // Normalize additive settings without introducing another schema bump.
             if (!extensionSettings.thoughtsInChatStyle) {
                 extensionSettings.thoughtsInChatStyle = 'corner';
@@ -738,6 +746,8 @@ export function saveChatData() {
         level: extensionSettings.level,
         exp: extensionSettings.exp || 0,
         combatSheet: extensionSettings.combatSheet || null,
+        statBlocks: extensionSettings.statBlocks || {},
+        encounterLogs: extensionSettings.encounterLogs || [],
         resolvedQuests: extensionSettings.resolvedQuests || [],
         queuedDiceRoll: queuedDiceRoll,
         quests: extensionSettings.quests,
@@ -1035,6 +1045,8 @@ export function loadChatData() {
     // Unspent character points are computed from the sheet and the level budget
     // (features/sheet.js); the old per-chat counter is no longer used.
     extensionSettings.combatSheet = savedData?.combatSheet ? JSON.parse(JSON.stringify(savedData.combatSheet)) : null;
+    extensionSettings.encounterLogs = Array.isArray(savedData?.encounterLogs) ? JSON.parse(JSON.stringify(savedData.encounterLogs)) : [];
+    extensionSettings.statBlocks = savedData?.statBlocks && typeof savedData.statBlocks === 'object' ? JSON.parse(JSON.stringify(savedData.statBlocks)) : {};
     extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
 
     // Restore quests

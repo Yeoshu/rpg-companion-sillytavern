@@ -42,3 +42,25 @@ test('abilities are described in plain English', () => {
     const stun = normalizeAbility({ name: 'Bash', target: 'all-enemies', roll: 'automatic', effects: [{ type: 'status', status: { template: 'incapacitate', name: 'Dazed', duration: 1 } }] });
     assert.equal(describeAbility(stun), 'Dazed: loses 1 phase (CON roll halves) → all enemies (automatic)');
 });
+
+import { computeAftermath, describeAftermath } from '../src/systems/mechanics/combat/aftermath.js';
+
+test('aftermath: Health/Energy from HP/END, used items come off the inventory or the sheet', () => {
+    const player = {
+        hp: 11, maxHp: 44, end: 0, maxEnd: 24,
+        block: { items: [{ id: 'health-potion', name: 'Health Potion', quantity: 3 }, { id: 'bomb', name: 'Bomb', quantity: 2 }, { id: 'rope', name: 'Rope', quantity: 1 }] },
+        items: [{ id: 'health-potion', name: 'Health Potion', quantity: 1 }, { id: 'bomb', name: 'Bomb', quantity: 1 }, { id: 'rope', name: 'Rope', quantity: 1 }]
+    };
+    const out = computeAftermath({ player, healthMax: 100, energyMax: 100, entries: ['Short sword', '3x Health Potions', 'Rope'] });
+    assert.equal(out.health, 25);
+    assert.equal(out.energy, 0);
+    assert.deepEqual(out.entries, ['Short sword', 'Health Potions', 'Rope']);
+    assert.deepEqual(out.items, [
+        { name: 'Health Potion', before: 3, after: 1, linked: true },
+        { name: 'Bomb', before: 2, after: 1, linked: false }
+    ]);
+    assert.deepEqual(out.sheetQuantities, { bomb: 1 });
+    assert.equal(describeAftermath(out, 'Lem', { healthMax: 100, energyMax: 100 }), "Lem's Health is now 25/100; Energy 0/100; Health Potion used: 3 → 1; Bomb used: 2 → 1");
+    const none = computeAftermath({ player: { ...player, items: player.block.items }, healthMax: null, energyMax: null, entries: [] });
+    assert.deepEqual([none.health, none.energy, none.items], [null, null, []]);
+});

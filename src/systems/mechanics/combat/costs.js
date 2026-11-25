@@ -31,7 +31,8 @@ export function deriveValues(block, settings = DEFAULT_COMBAT) {
     const DEX = roleValue(block.attributes, 'dex', roles);
     const CON = roleValue(block.attributes, 'con', roles);
     const b = block.bought || {};
-    const tier = TIERS[block.tier] || TIERS.standard;
+    const tiers = settings.tiers || TIERS;
+    const tier = tiers[block.tier] || tiers.standard;
     const baseHp = 20 + 2 * CON + (b.hp || 0);
     return {
         maxHp: Math.max(1, Math.round(baseHp * tier.hp)),
@@ -132,7 +133,8 @@ export function levelBudget(level, pointsPerLevel, settings = DEFAULT_COMBAT) {
 
 /** Budget for an enemy of this level and tier. */
 export function tierBudget(level, tier, pointsPerLevel, settings = DEFAULT_COMBAT) {
-    return Math.round(levelBudget(level, pointsPerLevel, settings) * (TIERS[tier] || TIERS.standard).budget);
+    const tiers = settings.tiers || TIERS;
+    return Math.round(levelBudget(level, pointsPerLevel, settings) * (tiers[tier] || tiers.standard).budget);
 }
 
 /**
@@ -184,6 +186,18 @@ function shrinkAbility(ability) {
         if (e.type === 'restoreEnd' && e.amount > 2) { e.amount = Math.ceil(e.amount * 0.75); return true; }
     }
     return false;
+}
+
+/**
+ * Shrinks an ability until its Active Points are at most `maxAp` (used for
+ * improvised actions). Mutates and returns it.
+ */
+export function capAbility(ability, maxAp) {
+    let guard = 200;
+    while (abilityCost(ability).ap > maxAp && guard-- > 0) {
+        if (!shrinkAbility(ability)) break;
+    }
+    return ability;
 }
 
 /**

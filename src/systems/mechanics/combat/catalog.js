@@ -102,6 +102,10 @@ export const DEFAULT_COMBAT = Object.freeze({
     budgetTolerance: 1.1,
     /** Everyone acts once per turn, in DEX order. */
     equalSpeed: false,
+    /** Pause between AI-controlled actions in the combat window (ms). */
+    aiDelay: 600,
+    /** Write HP, END and used items back to the tracker after a fight. */
+    syncTracker: true,
     /** Which attribute plays each role in the derived values. */
     roles: Object.freeze({ str: 'str', dex: 'dex', con: 'con' })
 });
@@ -115,6 +119,13 @@ export function normalizeCombatSettings(settings = {}) {
         apCapPerLevel: clamp(settings.apCapPerLevel, 0, 1000, d.apCapPerLevel),
         budgetTolerance: clamp(settings.budgetTolerance, 1, 10, d.budgetTolerance),
         equalSpeed: Boolean(settings.equalSpeed),
+        aiDelay: Math.round(clamp(settings.aiDelay, 0, 5000, d.aiDelay)),
+        syncTracker: settings.syncTracker === undefined ? d.syncTracker : Boolean(settings.syncTracker),
+        tiers: Object.fromEntries(Object.entries(TIERS).map(([id, def]) => [id, {
+            label: def.label,
+            budget: clamp(settings.tiers?.[id]?.budget, 0.05, 10, def.budget),
+            hp: clamp(settings.tiers?.[id]?.hp, 0.1, 20, def.hp)
+        }])),
         roles: {
             str: slug(roles.str) || d.roles.str,
             dex: slug(roles.dex) || d.roles.dex,

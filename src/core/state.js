@@ -10,7 +10,7 @@
  * Extension settings - persisted to SillyTavern settings
  */
 export let extensionSettings = {
-    settingsVersion: 6, // Version number for settings migrations
+    settingsVersion: 7, // Version number for settings migrations
     enabled: true,
     autoUpdate: false,
     updateDepth: 4, // How many messages to include in the context
@@ -261,6 +261,9 @@ export let extensionSettings = {
     exp: 0, // Per-chat EXP towards the next level
     combatSheet: null, // Per-chat combat sheet: bought values, resistances, abilities, items (features/sheet.js)
     sheetLibrary: [], // Saved character sheets, reusable across chats
+    statBlocks: {}, // Per-chat stat blocks of recurring NPCs, keyed by lowercase name (they keep their HP between fights)
+    npcTemplates: [], // Generic stat blocks ("Goblin") reusable in any chat
+    encounterLogs: [], // Per-chat logs of the last fights (features/combatAftermath.js)
     combat: { // Combat tuning (see src/systems/mechanics/combat/catalog.js DEFAULT_COMBAT)
         startingPool: 50,
         apCapBase: 25,
@@ -298,7 +301,9 @@ export let extensionSettings = {
     encounterSettings: {
         enabled: true, // Show Start Encounter button above chat input
         historyDepth: 8, // Number of recent messages to include in combat initialization
-        autoSaveLogs: false // Save detailed combat logs to file
+        autoSaveLogs: true, // Keep the last fights' logs in each chat
+        narration: 'phase', // 'phase': narrate each of your phases; 'end': only the summary at the end
+        aiTactics: false // Ask the AI to choose enemy actions (otherwise local tactics)
     },
     // Auto avatar generation settings
     autoGenerateAvatars: true, // Master toggle for auto-generating avatars

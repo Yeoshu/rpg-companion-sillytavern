@@ -153,6 +153,7 @@ import { getProgression } from './src/systems/features/experience.js';
 import { DEFAULT_PROGRESSION } from './src/systems/mechanics/progression.js';
 import { normalizeCombatSettings } from './src/systems/mechanics/combat/catalog.js';
 import { getCombatSettings } from './src/systems/features/sheet.js';
+import { openEncounterLogs } from './src/systems/ui/encounterLogViewer.js';
 import { getAttributes } from './src/systems/mechanics/character.js';
 
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
@@ -484,10 +485,13 @@ async function initUI() {
         saveSettings();
     });
     // Character sheet / combat tuning
-    $(document).on('change', '[data-combat], [data-combat-role]', function() {
-        const current = { ...getCombatSettings(), roles: { ...getCombatSettings().roles } };
+    $(document).on('change', '[data-combat], [data-combat-role], [data-combat-tier]', function() {
+        const current = JSON.parse(JSON.stringify(getCombatSettings()));
         if ($(this).is('[data-combat-role]')) {
             current.roles[$(this).data('combat-role')] = $(this).val();
+        } else if ($(this).is('[data-combat-tier]')) {
+            const [tier, key] = String($(this).data('combat-tier')).split('.');
+            current.tiers[tier][key] = Number($(this).val());
         } else {
             const value = Number($(this).val());
             current[$(this).data('combat')] = Number.isFinite(value) ? value : undefined;
@@ -529,6 +533,25 @@ async function initUI() {
         extensionSettings.encounterSettings.enabled = $(this).prop('checked');
         saveSettings();
         togglePlotButtons(); // This also controls encounter button visibility
+    });
+
+    $('#rpg-toggle-sync-tracker').on('change', function() {
+        extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), syncTracker: $(this).prop('checked') });
+        saveSettings();
+    });
+    $('#rpg-view-combat-logs').on('click', () => openEncounterLogs());
+
+    $('#rpg-encounter-narration').on('change', function() {
+        extensionSettings.encounterSettings = { ...(extensionSettings.encounterSettings || {}), narration: $(this).val() === 'end' ? 'end' : 'phase' };
+        saveSettings();
+    });
+    $('#rpg-toggle-ai-tactics').on('change', function() {
+        extensionSettings.encounterSettings = { ...(extensionSettings.encounterSettings || {}), aiTactics: $(this).prop('checked') };
+        saveSettings();
+    });
+    $('#rpg-toggle-equal-speed').on('change', function() {
+        extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), equalSpeed: $(this).prop('checked') });
+        saveSettings();
     });
 
     $('#rpg-encounter-history-depth').on('change', function() {
@@ -1141,6 +1164,9 @@ async function initUI() {
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);
     $('#rpg-encounter-history-depth').val(extensionSettings.encounterSettings?.historyDepth ?? 8);
+    $('#rpg-encounter-narration').val(extensionSettings.encounterSettings?.narration === 'end' ? 'end' : 'phase');
+    $('#rpg-toggle-ai-tactics').prop('checked', Boolean(extensionSettings.encounterSettings?.aiTactics));
+    $('#rpg-toggle-equal-speed').prop('checked', getCombatSettings().equalSpeed);
     $('#rpg-toggle-autosave-logs').prop('checked', extensionSettings.encounterSettings?.autoSaveLogs ?? true);
 
     // Combat narrative style
@@ -1282,6 +1308,11 @@ function fillCombatInputs() {
     $('[data-combat]').each(function() {
         $(this).val(values[$(this).data('combat')]);
     });
+    $('[data-combat-tier]').each(function() {
+        const [tier, key] = String($(this).data('combat-tier')).split('.');
+        $(this).val(values.tiers[tier][key]);
+    });
+    $('#rpg-toggle-sync-tracker').prop('checked', values.syncTracker);
     const attributes = getAttributes();
     $('[data-combat-role]').each(function() {
         const role = $(this).data('combat-role');
