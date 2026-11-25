@@ -116,6 +116,11 @@ pace at every level:
 Quests give EXP when you click their ✓ (Complete). ✗ removes a quest without
 EXP.
 
+**Fast start.** So a new character gets going quickly, every reward is
+multiplied at the first levels: ×2 at level 1, fading evenly to ×1 over four
+levels (×2, ×1.75, ×1.5, ×1.25, then ×1). Two main quests take you from
+level 1 to 2. Both numbers are in Settings → Progression; ×1 turns it off.
+
 ### Quests
 
 A quest has a short **name** ("The Toad Tax"), a **description** and
@@ -165,7 +170,13 @@ enemies brought to 0 HP otherwise. Enemies without a level count as even.
 
 A character is worth a number of character points (CP), and has a **budget**:
 
-    Budget = starting pool (50) + 5 × (level − 1) + any bonus you set
+    Budget = starting pool + 5 × (level − 1) + any bonus you set
+
+The starting pool comes from the **power level** (Settings → Character Sheet,
+or the select on the sheet itself): Gritty 50, **Heroic 100 (default)**,
+Legendary 150, or Custom. Enemies are built on a separate world pool (50), so
+the power level only changes your side. See `docs/COMBAT_DESIGN.md` "Power
+level".
 
 The badge next to the EXP bar shows the CP still unspent (red when over
 budget). Click it to open the **character sheet**, where everything that

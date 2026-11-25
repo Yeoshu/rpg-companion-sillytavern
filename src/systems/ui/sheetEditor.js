@@ -15,8 +15,9 @@ import { normalizeProgression } from '../mechanics/progression.js';
 import { extensionSettings } from '../../core/state.js';
 import {
     ADVANTAGES, BUYABLE, CLEANSE_CATEGORIES, DAMAGE_TYPES, ELEMENTAL_TYPES, LIMITATIONS, MODIFIER_STATS,
-    PHYSICAL_TYPES, RESISTANCES, STATUS_TEMPLATES, TARGETS, normalizeAbility
+    PHYSICAL_TYPES, POWER_PRESETS, RESISTANCES, STATUS_TEMPLATES, TARGETS, normalizeAbility, normalizeCombatSettings
 } from '../mechanics/combat/catalog.js';
+import { saveSettings } from '../../core/persistence.js';
 import {
     abilityCost, abilityPoints, abilityPoolCost, apCap, deriveValues, scalingDice
 } from '../mechanics/combat/costs.js';
@@ -79,7 +80,7 @@ export async function openSheetEditor() {
     const attributes = getAttributes();
     const skills = getSkills();
     let work = currentParts();
-    const settings = getCombatSettings();
+    let settings = getCombatSettings();
     const progression = normalizeProgression(extensionSettings.progression);
     const $root = $('<div class="rpg-sheet"></div>');
 
@@ -262,6 +263,13 @@ export async function openSheetEditor() {
                 ${esc(t('sheet.attributesShort', 'attributes'))} ${p.attributes} · ${esc(t('sheet.skillsShort', 'skills'))} ${p.skills} ·
                 ${esc(t('sheet.boughtShort', 'combat values'))} ${p.bought} · ${esc(t('sheet.abilitiesShort', 'abilities'))} ${p.abilities} · ${esc(t('sheet.resistShort', 'resistances'))} ${p.resistances}
             </div>
+            <label class="rpg-sheet-dim rpg-sheet-power" title="${esc(t('sheet.powerHint', 'How strong characters start compared with the world (all chats; also in Settings → Character Sheet)'))}">
+                ${esc(t('sheet.powerLevel', 'Power level'))}
+                <select class="text_pole" data-field="power">
+                    ${Object.entries(POWER_PRESETS).map(([id, preset]) => `<option value="${id}" ${settings.powerPreset === id ? 'selected' : ''}>${esc(t(`sheet.power.${id}`, preset.label))} (${preset.startingPool} CP)</option>`).join('')}
+                    ${settings.powerPreset === 'custom' ? `<option value="custom" selected>${esc(t('sheet.power.custom', 'Custom'))} (${settings.startingPool} CP)</option>` : ''}
+                </select>
+            </label>
             <label class="rpg-sheet-dim rpg-sheet-bonus" title="${esc(t('sheet.bonusHint', 'Extra (or fewer) points on top of the level budget'))}">
                 ${esc(t('sheet.budgetLine', 'Budget: {base} for level {level}').replace('{base}', p.base).replace('{level}', work.level))} +
                 <input type="number" class="text_pole rpg-sheet-num" data-field="bonus" value="${p.bonus}" step="1"> ${esc(t('sheet.bonus', 'bonus'))}${p.glimmer ? ` + ${p.glimmer} ${esc(t('sheet.fromGlimmers', 'from glimmers'))}` : ''}
@@ -322,6 +330,14 @@ export async function openSheetEditor() {
     });
     $root.on('input change', '[data-strike]', function () {
         work.sheet.strike = { ...(work.sheet.strike || {}), [$(this).data('strike')]: $(this).val() };
+    });
+    $root.on('change', '[data-field="power"]', function () {
+        // A global setting: applies at once (the sheet itself is still saved with Save).
+        extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), powerPreset: $(this).val() });
+        saveSettings();
+        settings = getCombatSettings();
+        $(document).trigger('rpg:progressionChanged');
+        render();
     });
     $root.on('change', '[data-field="bonus"]', function () {
         work.sheet.bonusPoints = Math.round(Number($(this).val()) || 0);

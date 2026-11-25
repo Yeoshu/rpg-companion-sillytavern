@@ -99,11 +99,27 @@ export const TIERS = {
     boss: { label: 'Boss', budget: 0.8, hp: 2 }
 };
 
+/**
+ * How strong the player's character is compared with the world. Enemy
+ * budgets always come from `worldPool`, so a bigger starting pool really
+ * makes the character stronger. Numbers from simulation; see
+ * docs/COMBAT_DESIGN.md "Power level".
+ */
+export const POWER_PRESETS = Object.freeze({
+    gritty: Object.freeze({ label: 'Gritty', startingPool: 50, apCapBase: 25 }),
+    heroic: Object.freeze({ label: 'Heroic', startingPool: 100, apCapBase: 35 }),
+    legendary: Object.freeze({ label: 'Legendary', startingPool: 150, apCapBase: 45 })
+});
+
 export const DEFAULT_COMBAT = Object.freeze({
+    /** gritty | heroic | legendary (sets startingPool and apCapBase) | custom */
+    powerPreset: 'heroic',
     /** CP a level 1 character is built on. */
-    startingPool: 50,
+    startingPool: 100,
+    /** Enemy budgets: a level 1 enemy's tier budget is a fraction of this. */
+    worldPool: 50,
     /** Ability AP cap warning: base + perLevel × level. */
-    apCapBase: 25,
+    apCapBase: 35,
     apCapPerLevel: 5,
     /** AI stat blocks over budget × this are scaled down. */
     budgetTolerance: 1.1,
@@ -130,9 +146,13 @@ export const DEFAULT_COMBAT = Object.freeze({
 export function normalizeCombatSettings(settings = {}) {
     const d = DEFAULT_COMBAT;
     const roles = settings.roles || {};
+    const presetId = POWER_PRESETS[settings.powerPreset] || settings.powerPreset === 'custom' ? settings.powerPreset : d.powerPreset;
+    const preset = POWER_PRESETS[presetId];
     return {
-        startingPool: clamp(settings.startingPool, 0, 10000, d.startingPool),
-        apCapBase: clamp(settings.apCapBase, 0, 10000, d.apCapBase),
+        powerPreset: presetId,
+        startingPool: preset ? preset.startingPool : clamp(settings.startingPool, 0, 10000, d.startingPool),
+        worldPool: clamp(settings.worldPool, 0, 10000, d.worldPool),
+        apCapBase: preset ? preset.apCapBase : clamp(settings.apCapBase, 0, 10000, d.apCapBase),
         apCapPerLevel: clamp(settings.apCapPerLevel, 0, 1000, d.apCapPerLevel),
         budgetTolerance: clamp(settings.budgetTolerance, 1, 10, d.budgetTolerance),
         equalSpeed: Boolean(settings.equalSpeed),

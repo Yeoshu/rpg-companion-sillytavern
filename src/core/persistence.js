@@ -26,7 +26,7 @@ import { validateStoredInventory, cleanItemString } from '../utils/security.js';
 import { migrateToV3JSON } from '../utils/jsonMigration.js';
 
 const extensionName = 'third-party/rpg-companion-sillytavern';
-const CURRENT_SETTINGS_VERSION = 7;
+const CURRENT_SETTINGS_VERSION = 8;
 
 const DEFAULT_USER_STATS = {
     health: 100,
@@ -613,6 +613,25 @@ export function loadSettings() {
             if (currentVersion < 7) {
                 if (extensionSettings.encounterSettings) extensionSettings.encounterSettings.autoSaveLogs = true;
                 extensionSettings.settingsVersion = 7;
+                settingsChanged = true;
+            }
+
+            // Migration to version 8: power levels. Enemy budgets now come from a
+            // separate world pool, and the default character is Heroic (100 CP).
+            // An untouched old default (50 CP, AP guide 25) becomes Heroic;
+            // anything customised stays as it was.
+            if (currentVersion < 8) {
+                const combat = extensionSettings.combat;
+                if (combat && typeof combat === 'object' && combat.powerPreset === undefined) {
+                    const untouched = (combat.startingPool ?? 50) === 50 && (combat.apCapBase ?? 25) === 25;
+                    combat.powerPreset = untouched ? 'heroic' : 'custom';
+                    if (untouched) {
+                        combat.startingPool = 100;
+                        combat.apCapBase = 35;
+                    }
+                    if (combat.worldPool === undefined) combat.worldPool = 50;
+                }
+                extensionSettings.settingsVersion = 8;
                 settingsChanged = true;
             }
 

@@ -89,12 +89,15 @@ test('points, budgets and the AP cap', () => {
     assert.equal(statBlockPoints(lem).total, 39); // 10 + 6 + 20 + 13/5 → 3 (ability pool); items are free
     assert.equal(abilityPoints(lem.abilities[1], [lem.abilities[0]]), 3);
     assert.equal(abilityPoints(lem.abilities[0], [lem.abilities[1]]), 20 + 3 - 13);
-    assert.equal(levelBudget(1, 5), 50);
-    assert.equal(levelBudget(5, 5), 70);
+    // Player budgets follow the power level (Heroic by default); enemies the world pool (50).
+    assert.equal(levelBudget(1, 5), 100);
+    assert.equal(levelBudget(5, 5), 120);
+    assert.equal(levelBudget(1, 5, normalizeCombatSettings({ powerPreset: 'gritty' })), 50);
     assert.equal(tierBudget(5, 'minion', 5), 28);
     assert.equal(tierBudget(1, 'boss', 5), 40);
     assert.equal(tierBudget(1, 'standard', 5), 23);
-    assert.equal(apCap(1), 30);
+    assert.equal(apCap(1), 40);
+    assert.equal(apCap(1, normalizeCombatSettings({ powerPreset: 'gritty' })), 30);
     const weak = normalizeStatBlock({ name: 'W', attributes: { str: 8 }, resistances: { fire: 'weak' }, bought: { pd: 2 } });
     assert.equal(statBlockPoints(weak).total, -7 + 6);
 });

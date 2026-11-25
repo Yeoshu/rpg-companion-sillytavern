@@ -145,7 +145,7 @@ export function apCap(level, settings = DEFAULT_COMBAT) {
 }
 
 /**
- * Point budget at a level (before tier).
+ * The player's point budget at a level (the starting pool from the power level).
  * @param {number} level
  * @param {number} pointsPerLevel - from progression settings
  */
@@ -153,10 +153,16 @@ export function levelBudget(level, pointsPerLevel, settings = DEFAULT_COMBAT) {
     return settings.startingPool + pointsPerLevel * (Math.max(1, level || 1) - 1);
 }
 
-/** Budget for an enemy of this level and tier. */
+/** The world's point budget at a level (before tier): what enemies are built on. */
+export function worldBudget(level, pointsPerLevel, settings = DEFAULT_COMBAT) {
+    const pool = settings.worldPool ?? DEFAULT_COMBAT.worldPool;
+    return pool + pointsPerLevel * (Math.max(1, level || 1) - 1);
+}
+
+/** Budget for an enemy (or NPC ally) of this level and tier. */
 export function tierBudget(level, tier, pointsPerLevel, settings = DEFAULT_COMBAT) {
     const tiers = settings.tiers || TIERS;
-    return Math.round(levelBudget(level, pointsPerLevel, settings) * (tiers[tier] || tiers.standard).budget);
+    return Math.round(worldBudget(level, pointsPerLevel, settings) * (tiers[tier] || tiers.standard).budget);
 }
 
 /**

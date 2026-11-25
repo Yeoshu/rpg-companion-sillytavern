@@ -3,15 +3,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     DEFAULT_PROGRESSION, normalizeProgression, expToNextLevel, questReward,
-    enemyLevelMultiplier, enemyReward, addExp,
+    enemyLevelMultiplier, enemyReward, addExp, earlyMultiplier,
 } from '../src/systems/mechanics/progression.js';
 
-const S = normalizeProgression({});
+const S = normalizeProgression({ earlyBoost: 1 }); // without the fast start
+const FAST = normalizeProgression({});
 
 test('EXP bar grows with level', () => {
     assert.equal(expToNextLevel(1, S), 100);
     assert.equal(expToNextLevel(5, S), 500);
     assert.equal(expToNextLevel(0, S), 100);
+});
+
+test('fast start: rewards ×2 at level 1, fading to ×1 after the early levels', () => {
+    assert.deepEqual([1, 2, 3, 4, 5, 9].map(l => earlyMultiplier(l, FAST)), [2, 1.75, 1.5, 1.25, 1, 1]);
+    assert.equal(earlyMultiplier(1, S), 1);
+    assert.equal(questReward('main', 1, FAST, () => 0), 40);   // 20% × 2 of 100
+    assert.equal(enemyReward(3, 3, FAST), 23);                 // 5% × 1.5 of 300 = 22.5
+    assert.equal(enemyReward(5, 5, FAST), 25);                 // past the early levels
 });
 
 test('quest rewards are a percentage of the current bar', () => {
