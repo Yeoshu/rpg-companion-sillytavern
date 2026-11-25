@@ -380,3 +380,28 @@ test('a full AI-vs-AI fight terminates with a result', () => {
         assert.ok(['victory', 'defeat'].includes(state.result));
     }
 });
+
+import { buildRoster } from '../src/systems/mechanics/combat/roster.js';
+
+test('buildRoster validates, names, budgets and scales AI stat blocks', () => {
+    const raw = {
+        party: [{ name: 'Lem', attributes: { str: 30 } }, { name: 'Aqua', level: 1, tier: 'standard', attributes: { con: 12 } }],
+        enemies: [
+            { name: 'Goblin', level: 1, tier: 'minion', abilities: [{ name: 'Stab', effects: [{ type: 'damage', dice: 12, damageType: 'pierce' }] }] },
+            { name: 'Goblin', level: 1, tier: 'minion', abilities: [{ name: 'Stab', effects: [{ type: 'damage', dice: 2, damageType: 'pierce' }] }] },
+            { name: '' },
+            'nonsense'
+        ],
+        environment: 'A cave.',
+        styleNotes: { environmentType: 'cave' }
+    };
+    const r = buildRoster(raw, { playerName: 'lem', pointsPerLevel: 5 });
+    assert.deepEqual(r.party.map(b => b.name), ['Aqua']);
+    assert.deepEqual(r.enemies.map(b => b.name), ['Goblin 1', 'Goblin 2']);
+    assert.equal(r.enemies[0].budget, 20);
+    assert.equal(r.enemies[0].adjusted, true);
+    assert.ok(r.enemies[0].points <= 22);
+    assert.equal(r.enemies[1].adjusted, undefined);
+    assert.equal(r.environment, 'A cave.');
+    assert.deepEqual(buildRoster(null).enemies, []);
+});

@@ -120,6 +120,27 @@ export function sheetChanged() {
     $(document).trigger('rpg:progressionChanged');
 }
 
+/**
+ * A tracker stat (Health, Energy) as a 0..1 fraction of its maximum, or null
+ * when the tracker doesn't have it.
+ */
+export function trackerFraction(statId) {
+    const config = extensionSettings.trackerConfig?.userStats?.customStats || [];
+    const stat = config.find(s => s?.id === statId && s.enabled !== false);
+    const value = Number(extensionSettings.userStats?.[statId]);
+    if (!stat || !Number.isFinite(value)) return null;
+    const max = Number(stat.maxValue) > 0 ? Number(stat.maxValue) : 100;
+    return Math.max(0, Math.min(1, value / max));
+}
+
+/** The player's stat block as it enters a fight: items take their quantity from the inventory. */
+export function playerCombatBlock() {
+    const block = buildPlayerStatBlock();
+    const entries = carriedEntries();
+    block.items = block.items.map(item => ({ ...item, quantity: itemStock(item, entries).quantity }));
+    return block;
+}
+
 /* ---------------------------------------------------------------------------
    Inventory link
    --------------------------------------------------------------------------- */

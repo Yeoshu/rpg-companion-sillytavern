@@ -82,3 +82,22 @@ export function describeAbility(ability) {
         .map(m => (MODIFIER_TEXT[m.id] ? MODIFIER_TEXT[m.id](m) : m.id));
     return `${effects} → ${describeTarget(ability.target)} (${roll})${mods.length ? `; ${mods.join(', ')}` : ''}`;
 }
+
+/**
+ * A stat block in plain text (for prompts and summaries).
+ * @param {object} block - normalized stat block
+ * @param {object} derived - from deriveValues()
+ */
+export function describeStatBlock(block, derived) {
+    const lines = [];
+    const tier = block.tier && block.tier !== 'standard' ? `, ${block.tier}` : '';
+    lines.push(`${block.name} (level ${block.level}${tier})`);
+    lines.push(`HP ${derived.maxHp}, END ${derived.maxEnd}, OCV ${derived.ocv}, DCV ${derived.dcv}, PD ${derived.pd}, ED ${derived.ed}, SPD ${derived.spd}`);
+    const attrs = Object.entries(block.attributes || {}).map(([k, v]) => `${k.toUpperCase()} ${v}`).join(', ');
+    if (attrs) lines.push(`Attributes: ${attrs}`);
+    const res = Object.entries(block.resistances || {}).map(([type, kind]) => `${kind} to ${type}`).join(', ');
+    if (res) lines.push(`Resistances: ${res}`);
+    for (const a of block.abilities || []) lines.push(`- ${a.name}: ${describeAbility(a)}`);
+    for (const a of block.items || []) lines.push(`- Item ${a.name}${a.quantity !== undefined ? ` x${a.quantity}` : ''}: ${describeAbility(a)}`);
+    return lines.join('\n');
+}
