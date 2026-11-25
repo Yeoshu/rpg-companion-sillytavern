@@ -738,6 +738,7 @@ export function saveChatData() {
         level: extensionSettings.level,
         exp: extensionSettings.exp || 0,
         combatSheet: extensionSettings.combatSheet || null,
+        statBlocks: extensionSettings.statBlocks || {},
         resolvedQuests: extensionSettings.resolvedQuests || [],
         queuedDiceRoll: queuedDiceRoll,
         quests: extensionSettings.quests,
@@ -1035,6 +1036,7 @@ export function loadChatData() {
     // Unspent character points are computed from the sheet and the level budget
     // (features/sheet.js); the old per-chat counter is no longer used.
     extensionSettings.combatSheet = savedData?.combatSheet ? JSON.parse(JSON.stringify(savedData.combatSheet)) : null;
+    extensionSettings.statBlocks = savedData?.statBlocks && typeof savedData.statBlocks === 'object' ? JSON.parse(JSON.stringify(savedData.statBlocks)) : {};
     extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
 
     // Restore quests

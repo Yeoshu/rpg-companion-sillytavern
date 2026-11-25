@@ -13,9 +13,28 @@ Status: **agreed**. Built so far:
   validates and budget-scales them, then the pre-fight preview, the
   timeline, the action bar with hit chances, the log, and the result screen
   with tier-scaled EXP and the summary. You start at your tracker Health and
-  Energy. Not yet: per-phase narration, free-text actions, AI tactics,
-  matching and saving stat blocks (step 4), and writing HP, END and items
-  back to the tracker (step 5).
+  Energy.
+- Step 4, the AI calls (`src/systems/mechanics/combat/aiPrompts.js`, pure and
+  tested):
+  - **Known characters:** before the set-up call, stored stat blocks whose
+    names (or aliases) appear in recent chat or Present Characters are
+    offered; the AI reuses them by name (`"existing": true`). Templates can
+    appear several times ("Toad 1", "Toad 2").
+  - **Narration:** one call at the start of each of your phases, narrating
+    everything since the last one (Settings → Advanced → Combat narration;
+    "only the summary" skips it).
+  - **Free actions:** typed text becomes one of your abilities, Dodge /
+    Recover / Flee, or an improvised check (attribute, skill, difficulty and
+    an effect capped at half your AP guide) that you confirm and roll.
+  - **AI tactics** (optional setting): one call per AI-controlled action;
+    anything invalid falls back to the local tactics.
+  - **Saving:** after the fight, named newcomers can be saved in the chat and
+    generic ones as templates (`src/systems/features/npcStore.js`); stored
+    characters keep their HP and END (at least 1) between fights. The
+    Characters manager (from the preview or the character sheet) edits,
+    rests and deletes them.
+- Not yet (step 5): writing HP, END and items back to the tracker, saving
+  encounter logs per chat, and the remaining settings.
 
 Decisions on the open questions are at the end; balance changes found by
 simulation are marked in §2, §3 and §7.

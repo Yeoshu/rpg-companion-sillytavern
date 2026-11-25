@@ -85,6 +85,10 @@ export function buildStatBlockInstructions(userName, setup = {}) {
     if (setup.playerSheet) {
         text += `${userName}'s sheet, for scale:\n<sheet>\n${setup.playerSheet}\n</sheet>\n\n`;
     }
+    if (setup.known?.length) {
+        text += `These characters already have stat blocks. If they take part in this fight, put them in "party" or "enemies" as just {"name": "<name>", "existing": true} instead of writing a stat block (a generic one, like a template for a kind of creature, can be listed several times):\n`;
+        text += setup.known.map(k => `- ${k.name}${k.template ? ' (generic)' : ''}${k.description ? `: ${k.description}` : ''}`).join('\n') + '\n\n';
+    }
     text += `Return ONLY a JSON object:
 {
   "party": [ /* allies fighting with ${userName}; may be empty */ ],
@@ -159,6 +163,7 @@ Return ONLY the JSON object, no other text.`;
  * @param {number} [setup.level] - the player's level
  * @param {object} [setup.budgets] - { minion, standard, elite, boss } points at the player's level
  * @param {number} [setup.perLevel] - extra points per level of a standard enemy
+ * @param {object[]} [setup.known] - stored stat blocks the AI may reuse by name
  * @returns {Promise<Array>} Message array for the API
  */
 export async function buildEncounterInitPrompt(setup = {}) {

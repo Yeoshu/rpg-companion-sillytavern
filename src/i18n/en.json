@@ -539,5 +539,12 @@
     "sheet.short": "Sheet",
     "sheet.save": "Save",
     "sheet.unspent": "CP unspent",
-    "sheet.overBudget": "CP over budget"
+    "sheet.overBudget": "CP over budget",
+    "template.settingsModal.advanced.encounterNarration": "Combat narration:",
+    "template.settingsModal.advanced.encounterNarrationPhase": "Narrate each of my turns",
+    "template.settingsModal.advanced.encounterNarrationEnd": "Only the summary at the end (fewer AI calls)",
+    "template.settingsModal.advanced.aiTactics": "AI chooses enemy actions",
+    "template.settingsModal.advanced.aiTacticsNote": "One AI call per enemy action, so enemies act in character. Off: enemies use fast local tactics.",
+    "template.settingsModal.advanced.equalSpeed": "Equal speed in combat",
+    "template.settingsModal.advanced.equalSpeedNote": "Everyone acts once per turn in DEX order, instead of faster characters acting more often."
 }

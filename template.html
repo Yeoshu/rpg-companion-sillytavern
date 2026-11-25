@@ -840,6 +840,30 @@
                     <small data-i18n-key="template.settingsModal.advanced.encounterHistoryDepthNote">Number of recent messages to include in combat initialization.</small>
                 </div>
 
+                <div class="rpg-setting-row">
+                    <label for="rpg-encounter-narration" data-i18n-key="template.settingsModal.advanced.encounterNarration">Combat narration:</label>
+                    <select id="rpg-encounter-narration" class="rpg-input">
+                        <option value="phase" data-i18n-key="template.settingsModal.advanced.encounterNarrationPhase">Narrate each of my turns</option>
+                        <option value="end" data-i18n-key="template.settingsModal.advanced.encounterNarrationEnd">Only the summary at the end (fewer AI calls)</option>
+                    </select>
+                </div>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-ai-tactics" />
+                    <span data-i18n-key="template.settingsModal.advanced.aiTactics">AI chooses enemy actions</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.advanced.aiTacticsNote">
+                    One AI call per enemy action, so enemies act in character. Off: enemies use fast local tactics.
+                </small>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-equal-speed" />
+                    <span data-i18n-key="template.settingsModal.advanced.equalSpeed">Equal speed in combat</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.advanced.equalSpeedNote">
+                    Everyone acts once per turn in DEX order, instead of faster characters acting more often.
+                </small>
+
                 <label class="checkbox_label">
                     <input type="checkbox" id="rpg-toggle-autosave-logs" />
                     <span data-i18n-key="template.settingsModal.advanced.autoSaveCombatLogs">Auto-save Combat Logs</span>

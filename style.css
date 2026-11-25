@@ -4313,6 +4313,81 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
 .rpg-combat-log-out,
 .rpg-combat-log-end { font-weight: 600; }
 
+.rpg-combat-chip-ok { color: var(--rpg-success); border-color: currentColor; }
+
+.rpg-combat-free {
+    display: flex;
+    gap: 0.4em;
+    margin: 0;
+}
+
+.rpg-combat-free input {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+}
+
+.rpg-combat-log-narration {
+    margin: 0.35em 0;
+    padding: 0.35em 0.6em;
+    color: var(--rpg-text);
+    font-style: italic;
+    border-left-color: var(--rpg-highlight);
+    background: var(--rpg-faint);
+    border-radius: 0 var(--rpg-radius) var(--rpg-radius) 0;
+}
+
+.rpg-combat-known,
+.rpg-combat-improvised {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4em;
+    text-align: left;
+}
+
+.rpg-combat-known h3,
+.rpg-combat-improvised h3,
+.rpg-combat-improvised p,
+.rpg-combat-known p { margin: 0; }
+
+.rpg-combat-known small { opacity: 0.7; }
+
+.rpg-combat-improvised select {
+    display: inline-block;
+    width: auto;
+    margin: 0 0.2em;
+    padding: 0.1em 0.3em;
+}
+
+.rpg-combat-save {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35em;
+    width: min(28em, 100%);
+    padding: 0.6em;
+    text-align: left;
+    background: var(--rpg-surface);
+    border: 1px solid var(--rpg-border);
+    border-radius: var(--rpg-radius);
+}
+
+.rpg-combat-save-title { font-weight: 600; }
+
+.rpg-combat-save-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5em;
+}
+
+.rpg-combat-save-row select {
+    width: auto;
+    max-width: 60%;
+    margin: 0;
+}
+
+.rpg-combat-save > button { align-self: flex-end; }
+
 /* Result screen */
 .rpg-encounter-over {
     display: flex;

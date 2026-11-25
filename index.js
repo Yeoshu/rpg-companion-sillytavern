@@ -531,6 +531,19 @@ async function initUI() {
         togglePlotButtons(); // This also controls encounter button visibility
     });
 
+    $('#rpg-encounter-narration').on('change', function() {
+        extensionSettings.encounterSettings = { ...(extensionSettings.encounterSettings || {}), narration: $(this).val() === 'end' ? 'end' : 'phase' };
+        saveSettings();
+    });
+    $('#rpg-toggle-ai-tactics').on('change', function() {
+        extensionSettings.encounterSettings = { ...(extensionSettings.encounterSettings || {}), aiTactics: $(this).prop('checked') };
+        saveSettings();
+    });
+    $('#rpg-toggle-equal-speed').on('change', function() {
+        extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), equalSpeed: $(this).prop('checked') });
+        saveSettings();
+    });
+
     $('#rpg-encounter-history-depth').on('change', function() {
         if (!extensionSettings.encounterSettings) {
             extensionSettings.encounterSettings = { enabled: true, historyDepth: 8, autoSaveLogs: true };
@@ -1141,6 +1154,9 @@ async function initUI() {
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);
     $('#rpg-encounter-history-depth').val(extensionSettings.encounterSettings?.historyDepth ?? 8);
+    $('#rpg-encounter-narration').val(extensionSettings.encounterSettings?.narration === 'end' ? 'end' : 'phase');
+    $('#rpg-toggle-ai-tactics').prop('checked', Boolean(extensionSettings.encounterSettings?.aiTactics));
+    $('#rpg-toggle-equal-speed').prop('checked', getCombatSettings().equalSpeed);
     $('#rpg-toggle-autosave-logs').prop('checked', extensionSettings.encounterSettings?.autoSaveLogs ?? true);
 
     // Combat narrative style

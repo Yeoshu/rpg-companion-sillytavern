@@ -187,6 +187,18 @@ function shrinkAbility(ability) {
 }
 
 /**
+ * Shrinks an ability until its Active Points are at most `maxAp` (used for
+ * improvised actions). Mutates and returns it.
+ */
+export function capAbility(ability, maxAp) {
+    let guard = 200;
+    while (abilityCost(ability).ap > maxAp && guard-- > 0) {
+        if (!shrinkAbility(ability)) break;
+    }
+    return ability;
+}
+
+/**
  * Scales an (AI-written) stat block down until it is within budget × tolerance.
  * Cuts whatever currently costs the most: an ability's biggest effect, a
  * bought value, or an attribute above 10. Mutates and returns the block, with
