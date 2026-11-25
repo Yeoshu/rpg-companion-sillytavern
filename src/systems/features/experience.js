@@ -122,7 +122,9 @@ export function encounterRewards(enemies, result) {
         // Tougher tiers are worth more (minion ×0.5 … boss ×2, the tier's HP multiplier).
         const tiers = getCombatSettings().tiers;
         const tier = tiers[enemy.tier] || tiers.standard;
-        return { name: String(enemy.name || '?'), level, tier: enemy.tier || 'standard', exp: Math.max(1, Math.round(enemyReward(level, playerLevel, settings) * tier.hp)) };
+        // A swarm acts as one, so each member is worth half (six rats ≈ three minions).
+        const weight = Number(enemy.swarm) >= 2 ? Number(enemy.swarm) * SWARM_MEMBER_EXP : 1;
+        return { name: String(enemy.name || '?'), level, tier: enemy.tier || 'standard', exp: Math.max(1, Math.round(enemyReward(level, playerLevel, settings) * tier.hp * weight)) };
     });
     return { total: rows.reduce((sum, row) => sum + row.exp, 0), enemies: rows };
 }
@@ -132,6 +134,7 @@ export function encounterRewards(enemies, result) {
    --------------------------------------------------------------------------- */
 
 const MAX_RESOLVED = 200;
+const SWARM_MEMBER_EXP = 0.5;
 const MAX_HISTORY = 50;
 
 function questKey(title) {

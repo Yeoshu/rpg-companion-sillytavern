@@ -90,7 +90,7 @@ export function buildStatBlockInstructions(userName, setup = {}) {
         text += `${userName}'s sheet, for scale:\n<sheet>\n${setup.playerSheet}\n</sheet>\n\n`;
     }
     if (setup.known?.length) {
-        text += `These characters already have stat blocks. If they take part in this fight, put them in "party" or "enemies" as just {"name": "<name>", "existing": true} instead of writing a stat block (a generic one, like a template for a kind of creature, can be listed several times):\n`;
+        text += `These characters already have stat blocks. If they take part in this fight, put them in "party" or "enemies" as just {"name": "<name>", "existing": true} instead of writing a stat block (a generic one, like a template for a kind of creature, can be listed several times or given a "count"):\n`;
         text += setup.known.map(k => `- ${k.name}${k.template ? ' (generic)' : ''}${k.description ? `: ${k.description}` : ''}`).join('\n') + '\n\n';
     }
     text += `Return ONLY a JSON object:
@@ -111,6 +111,7 @@ Each stat block:
   "name": "Goblin Archer",
   "level": ${level},
   "tier": "minion|standard|elite|boss",
+  "size": "tiny|normal|large",
   "description": "One sentence: what they look like and how they fight",
   "sprite": "one emoji",
   "attributes": { "str": 10, "dex": 12, "con": 10 },
@@ -135,6 +136,8 @@ Rules for stat blocks:
 - bought (optional): extra hp, end, rec, ocv (accuracy), dcv (defence), pd (physical defence), ed (elemental defence), spd (actions per turn; 1 extra is a lot).
 - resistances (optional): damage type -> "resistant" (half), "immune" (none) or "weak" (x1.5).
 - tier: minion = fodder that comes in groups, standard = an ordinary fighter, elite = a dangerous individual, boss = a big threat meant for a whole party.
+- size: tiny = cat-sized or smaller (rats, bats, insects, crows, snakes); normal = goblins, people, wolves; large = bears, ogres and bigger.
+- How many: a fair fight for ${userName} (plus any allies) is roughly one elite, one or two standard enemies, or a leader with two or three minions. Write each combatant once and add "count": N for several of the same kind (e.g. "count": 4 on a goblin). Tiny creatures in numbers fight as one swarm: give the creature's own stats (one rat) with "size": "tiny" and "count": N. If the story calls for more enemies than a fair fight, include them anyway and add "reserve": true to the extras: they join as others fall. Anything still too much is trimmed automatically.
 - level: on ${userName}'s scale (${userName} is level ${level}). An even match is the same level; judge it from how dangerous they are in the story.
 - abilities: 1 to 3 per combatant. Everyone can already Strike, Dodge, Recover and Flee, so don't list those.
   - target: self, one-ally, one-enemy, all-allies, all-enemies, everyone

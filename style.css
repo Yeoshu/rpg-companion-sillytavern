@@ -4258,6 +4258,27 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
     filter: grayscale(0.8);
 }
 
+.rpg-combat-card.is-waiting {
+    opacity: 0.55;
+    border-style: dashed;
+}
+
+.rpg-combat-chip-swarm { color: var(--rpg-highlight); border-color: currentColor; }
+.rpg-combat-chip-reserve { font-style: italic; }
+
+.rpg-combat-balance {
+    margin: 0 0 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--rpg-border);
+    border-radius: 6px;
+    font-size: 0.9em;
+}
+
+.rpg-combat-balance-changes {
+    margin-top: 2px;
+    opacity: 0.85;
+}
+
 .rpg-combat-card.is-target {
     cursor: pointer;
     border-style: dashed;

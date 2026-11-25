@@ -518,6 +518,15 @@
     "progression.encounterDone": "Encounter",
     "quests.completeQuestTitle": "Complete quest (gain EXP)",
     "encounter.ui.levelShort": "Lv",
+    "encounter.ui.balancing": "Checking the odds...",
+    "encounter.ui.swarmOf": "swarm of {n}",
+    "encounter.ui.swarmHint": "Acts once per phase, hits harder while there are many; area attacks hurt it more",
+    "encounter.ui.reserve": "joins later",
+    "encounter.ui.reserveHint": "Joins when someone on their side falls",
+    "encounter.ui.balanceChanged": "To keep it winnable:",
+    "encounter.ui.balanceWas": "was {pct}",
+    "encounter.ui.balanceHint": "From fights played out locally with everyone on automatic tactics, at full HP and END. A rough guide: your own choices usually do better.",
+    "encounter.ui.balanceEstimate": "Estimated chance to win:",
     "template.settingsModal.progression.askDropped": "Ask when the tracker removes a quest",
     "template.settingsModal.progression.askDroppedNote": "When an AI tracker update drops a quest or marks it completed, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.",
     "progression.droppedTitle": "Quests removed by the tracker",
@@ -562,5 +571,8 @@
     "template.settingsModal.sheet.glimmers": "Glimmers",
     "template.settingsModal.sheet.glimmersNote": "Using an ability or your basic attack on an enemy can spark a new ability (as in SaGa). The chance below is against an even, standard enemy: ×¼ for minions, ×2 for elites, ×3 for bosses, and ×1.4 for each level the enemy is above you. The AI designs the ability from your sheet and the preferences on your character sheet; glimmered abilities come with bonus CP equal to their cost.",
     "template.settingsModal.sheet.glimmerChance": "Glimmer chance (%)",
-    "template.settingsModal.sheet.glimmerMax": "Glimmers per fight"
+    "template.settingsModal.sheet.glimmerMax": "Glimmers per fight",
+    "template.settingsModal.sheet.balance": "Keep encounters winnable",
+    "template.settingsModal.sheet.balanceNote": "Before a fight, it is played out locally many times. If your chance to win is below the target, groups of tiny creatures (rats, bats, insects) fight as one swarm, and extra enemies wait to join as others fall; if that isn't enough, the last of them stay out of the fight. A single enemy is never weakened.",
+    "template.settingsModal.sheet.targetWin": "Target chance to win (%)"
 }

@@ -42,9 +42,10 @@ import { TIERS, normalizeStatBlock } from '../mechanics/combat/catalog.js';
 import { deriveValues, statBlockPoints, tierBudget } from '../mechanics/combat/costs.js';
 import { describeAbility, describeEffect, describeStatBlock } from '../mechanics/combat/describe.js';
 import { buildRoster } from '../mechanics/combat/roster.js';
+import { balanceEncounter, estimateWinRate, swarmName } from '../mechanics/combat/balance.js';
 import {
     act, advance, availableActions, conclude, createCombat, note, say, describeStatus, effective, getCombatant, hitChance,
-    isActive, upcomingPhases, validTargets
+    isActive, swarmSize, upcomingPhases, validTargets
 } from '../mechanics/combat/engine.js';
 import { chooseAction } from '../mechanics/combat/tactics.js';
 import { addGlimmeredAbility, getCombatSheet, getCombatSettings, normalizeSheet, playerCombatBlock, trackerFraction } from '../features/sheet.js';
@@ -210,6 +211,10 @@ export class EncounterModal {
             }
             this.player = player;
             this.roster = roster;
+            this.showLoadingState(t('encounter.ui.balancing', 'Checking the odds...'));
+            await new Promise(resolve => setTimeout(resolve, 0));
+            if (this.closed) return;
+            this.balanceRoster();
             updateCurrentEncounter({ active: true, initialized: true });
             if (roster.styleNotes) this.applyEnvironmentStyling(roster.styleNotes);
             this.showPreview();
@@ -218,6 +223,77 @@ export class EncounterModal {
             this.showErrorWithRegenerate(`${t('encounter.ui.error.failedToInitialize', 'Failed to initialize combat:')} ${error.message}`);
         } finally {
             this.busy = false;
+        }
+    }
+
+    /** Party participants for the odds estimate (everyone at full strength, AI-controlled). */
+    balanceParty() {
+        return [
+            { block: this.player, side: 'party', isPlayer: true },
+            ...this.roster.party.map(block => ({ block, side: 'party' }))
+        ];
+    }
+
+    /** Enemy participants for createCombat, from the roster's blocks and their swarm/reserve marks. */
+    enemyParticipants() {
+        return this.roster.enemies.map(block => ({
+            block,
+            side: 'enemies',
+            swarm: block.swarm,
+            reserve: Boolean(block.reserve),
+            name: block.swarm ? (block.swarmName || swarmName(block.name)) : undefined
+        }));
+    }
+
+    /**
+     * Fits the encounter to the difficulty target (see balance.js): tiny
+     * creatures in groups become swarms, extra enemies wait in reserve or stay
+     * out. With balancing off, only the AI's own swarm/reserve marks are used.
+     */
+    balanceRoster() {
+        const settings = getCombatSettings();
+        const roster = this.roster;
+        roster.heldBack = [];
+        roster.balance = null;
+        if (!settings.balanceEncounters) {
+            for (const block of roster.enemies) {
+                if (block.size !== 'tiny') delete block.swarm;
+            }
+            return;
+        }
+        try {
+            const result = balanceEncounter({
+                party: this.balanceParty(),
+                enemies: roster.enemies,
+                target: settings.targetWinChance / 100,
+                settings
+            });
+            const enemies = result.enemies.map(p => {
+                const block = p.block;
+                if (p.swarm) {
+                    block.swarm = p.swarm;
+                    block.swarmName = p.name;
+                } else {
+                    delete block.swarm;
+                }
+                block.reserve = Boolean(p.reserve);
+                return block;
+            });
+            roster.heldBack = result.heldBack;
+            roster.enemies = enemies;
+            roster.balance = { estimate: result.estimate, before: result.before, changes: result.changes };
+        } catch (error) {
+            console.error('[RPG Companion] Encounter balancing failed:', error);
+        }
+    }
+
+    /** Re-estimates the odds after a stat block was edited (nothing is changed). */
+    reestimate() {
+        if (!this.roster.balance) return;
+        try {
+            this.roster.balance.estimate = estimateWinRate([...this.balanceParty(), ...this.enemyParticipants()], { settings: getCombatSettings() });
+        } catch (error) {
+            console.error('[RPG Companion] Odds estimate failed:', error);
         }
     }
 
@@ -232,14 +308,17 @@ export class EncounterModal {
         const card = (block, kind) => {
             const d = deriveValues(block, settings);
             const isPlayer = kind === 'player';
+            const swarm = kind === 'enemy' && block.swarm >= 2 ? block.swarm : 0;
             const over = block.points !== undefined && block.budget !== undefined;
             return `
                 <div class="rpg-combat-preview-card" data-name="${esc(block.name)}" data-kind="${kind}">
                     <div class="rpg-combat-preview-head">
                         ${this.portrait(block, isPlayer)}
                         <div class="rpg-combat-preview-title">
-                            <strong>${esc(block.name)}</strong>
+                            <strong>${esc(swarm ? (block.swarmName || swarmName(block.name)) : block.name)}</strong>
                             <span class="rpg-combat-chips">
+                                ${swarm ? `<span class="rpg-combat-chip rpg-combat-chip-swarm" title="${esc(t('encounter.ui.swarmHint', 'Acts once per phase, hits harder while there are many; area attacks hurt it more'))}">${esc(t('encounter.ui.swarmOf', 'swarm of {n}').replace('{n}', swarm))}</span>` : ''}
+                                ${kind === 'enemy' && block.reserve ? `<span class="rpg-combat-chip rpg-combat-chip-reserve" title="${esc(t('encounter.ui.reserveHint', 'Joins when someone on their side falls'))}">${esc(t('encounter.ui.reserve', 'joins later'))}</span>` : ''}
                                 <span class="rpg-combat-chip">${esc(t('encounter.ui.levelShort', 'Lv'))} ${block.level}</span>
                                 ${isPlayer ? `<span class="rpg-combat-chip">${esc(t('encounter.ui.you', 'You'))}</span>` : `<span class="rpg-combat-chip rpg-combat-tier-${block.tier}">${esc(TIERS[block.tier]?.label || block.tier)}</span>`}
                                 ${over ? `<span class="rpg-combat-chip" title="${esc(t('encounter.ui.pointsHint', 'Points / budget for this level and tier'))}">${block.points} / ${block.budget} pts</span>` : ''}
@@ -250,7 +329,7 @@ export class EncounterModal {
                         ${isPlayer ? '' : `<button type="button" class="rpg-combat-icon-btn" data-preview="edit" title="${esc(t('encounter.ui.editStatBlock', 'Edit stat block'))}"><i class="fa-solid fa-pen"></i></button>`}
                     </div>
                     ${block.description ? `<div class="rpg-combat-preview-desc">${esc(block.description)}</div>` : ''}
-                    <div class="rpg-combat-preview-stats">HP ${d.maxHp} · END ${d.maxEnd} · SPD ${d.spd} · OCV ${d.ocv} · DCV ${d.dcv} · PD ${d.pd} · ED ${d.ed}</div>
+                    <div class="rpg-combat-preview-stats">HP ${swarm ? `${d.maxHp * swarm} (${swarm} × ${d.maxHp})` : d.maxHp} · END ${d.maxEnd} · SPD ${d.spd} · OCV ${d.ocv} · DCV ${d.dcv} · PD ${d.pd} · ED ${d.ed}</div>
                     <div class="rpg-combat-preview-stats rpg-combat-dim">${Object.entries(block.attributes).map(([k, v]) => `${k.toUpperCase()} ${v}`).join(' · ')}</div>
                     ${Object.keys(block.resistances || {}).length ? `<div class="rpg-combat-preview-stats rpg-combat-dim">${Object.entries(block.resistances).map(([k, v]) => `${esc(cap(v))}: ${esc(k)}`).join(' · ')}</div>` : ''}
                     <ul class="rpg-combat-preview-abilities">
@@ -274,6 +353,7 @@ export class EncounterModal {
                     ${this.roster.party.map(b => card(b, 'ally')).join('')}
                 </div>
                 <h3 class="rpg-combat-heading"><i class="fa-solid fa-skull"></i> ${esc(t('encounter.ui.enemiesTitle', 'Enemies'))}</h3>
+                ${this.renderBalance()}
                 <div class="rpg-combat-preview-grid">
                     ${this.roster.enemies.map(b => card(b, 'enemy')).join('')}
                 </div>
@@ -298,6 +378,24 @@ export class EncounterModal {
         }));
     }
 
+    /** The estimated odds and what balancing changed, above the enemies. */
+    renderBalance() {
+        const b = this.roster.balance;
+        if (!b) return '';
+        const pct = n => `${Math.round(n * 100)}%`;
+        const changed = b.changes.length
+            ? `<div class="rpg-combat-balance-changes">${esc(t('encounter.ui.balanceChanged', 'To keep it winnable:'))} ${esc(b.changes.join('; '))}.</div>`
+            : '';
+        const was = b.changes.length && Math.round(b.before * 100) !== Math.round(b.estimate * 100)
+            ? ` <span class="rpg-combat-dim">(${esc(t('encounter.ui.balanceWas', 'was {pct}').replace('{pct}', pct(b.before)))})</span>`
+            : '';
+        return `
+            <div class="rpg-combat-balance" title="${esc(t('encounter.ui.balanceHint', 'From fights played out locally with everyone on automatic tactics, at full HP and END. A rough guide: your own choices usually do better.'))}">
+                <div><i class="fa-solid fa-scale-balanced"></i> ${esc(t('encounter.ui.balanceEstimate', 'Estimated chance to win:'))} <strong>${pct(b.estimate)}</strong>${was}</div>
+                ${changed}
+            </div>`;
+    }
+
     /** Edits one stat block as JSON. Your edits are not scaled to budget. */
     async editStatBlock(list, name) {
         const blocks = this.roster[list];
@@ -313,11 +411,15 @@ export class EncounterModal {
         if (old.storedKey) block.storedKey = old.storedKey;
         if (old.fromTemplate) block.fromTemplate = old.fromTemplate;
         if (old.stored) block.stored = true;
+        for (const key of ['swarm', 'swarmName', 'reserve']) {
+            if (old[key] !== undefined && block[key] === undefined) block[key] = old[key];
+        }
         if (this.controlled.has(name) && block.name !== name) {
             this.controlled.delete(name);
             this.controlled.add(block.name);
         }
         blocks[index] = block;
+        this.reestimate();
         this.showPreview();
     }
 
@@ -339,9 +441,12 @@ export class EncounterModal {
                 end: energy === null ? undefined : Math.round(d.maxEnd * energy)
             },
             ...this.roster.party.map(block => ({ block, side: 'party', controlled: this.controlled.has(block.name) ? 'player' : 'ai' })),
-            ...this.roster.enemies.map(block => ({ block, side: 'enemies' }))
+            ...this.enemyParticipants()
         ];
         this.state = createCombat(participants, { settings });
+        if (this.roster.heldBack?.length) {
+            note(this.state, null, 'setup', `Not joining this fight (they hang back, are elsewhere or flee at once): ${this.roster.heldBack.join(', ')}.`);
+        }
         this.selecting = null;
         this.queue = [];
         this.lastSide = null;
@@ -989,7 +1094,7 @@ export class EncounterModal {
             'rpg-combat-card',
             `rpg-combat-${c.side}`,
             state.current === c.id ? 'is-current' : '',
-            !isActive(c) ? 'is-out' : '',
+            c.waiting ? 'is-waiting' : (!isActive(c) ? 'is-out' : ''),
             target ? 'is-target' : ''
         ].filter(Boolean).join(' ');
         const statusChips = c.statuses.map(st => `<span class="rpg-combat-status" title="${esc(describeStatus(st))}">${esc(st.name)} ${st.remaining}</span>`).join('');
@@ -1002,6 +1107,8 @@ export class EncounterModal {
                         <span class="rpg-combat-chip">${esc(t('encounter.ui.levelShort', 'Lv'))} ${c.block.level}</span>
                         ${c.side === 'enemies' && c.block.tier !== 'standard' ? `<span class="rpg-combat-chip rpg-combat-tier-${c.block.tier}">${esc(TIERS[c.block.tier]?.label || '')}</span>` : ''}
                         ${c.fled ? `<span class="rpg-combat-chip">${esc(t('encounter.ui.fled', 'fled'))}</span>` : ''}
+                        ${c.swarm && !c.out ? `<span class="rpg-combat-chip rpg-combat-chip-swarm" title="${esc(t('encounter.ui.swarmHint', 'Acts once per phase, hits harder while there are many; area attacks hurt it more'))}">×${swarmSize(c)}</span>` : ''}
+                        ${c.waiting ? `<span class="rpg-combat-chip rpg-combat-chip-reserve" title="${esc(t('encounter.ui.reserveHint', 'Joins when someone on their side falls'))}">${esc(t('encounter.ui.reserve', 'joins later'))}</span>` : ''}
                     </div>
                     <div class="rpg-combat-bar rpg-combat-hp" title="HP"><div style="width:${hp}%"></div><span>${c.hp}/${c.maxHp} HP</span></div>
                     <div class="rpg-combat-bar rpg-combat-end" title="END"><div style="width:${end}%"></div><span>${c.end}/${c.maxEnd} END</span></div>
@@ -1189,7 +1296,7 @@ export class EncounterModal {
         this._expAwarded = true;
         const enemies = this.state.combatants
             .filter(c => c.side === 'enemies' && !c.fled)
-            .map(c => ({ name: c.name, hp: c.hp, level: c.block.level, tier: c.block.tier }));
+            .map(c => ({ name: c.name, hp: c.hp, level: c.block.level, tier: c.block.tier, swarm: c.swarm?.count }));
         const rewards = encounterRewards(enemies, result);
         if (!rewards.total) return;
         grantExp(rewards.total, t('progression.encounterDone', 'Encounter'));
@@ -1254,7 +1361,7 @@ export class EncounterModal {
                 const c = getCombatant(this.state, row.dataset.id);
                 const choice = row.querySelector('select').value;
                 if (choice === 'chat') {
-                    saveChatBlock(c.block, c.hp < c.maxHp ? { hp: Math.max(1, c.hp), end: c.end } : {});
+                    saveChatBlock(c.block, c.hp < c.maxHp && !c.swarm ? { hp: Math.max(1, c.hp), end: c.end } : {});
                     saved++;
                 } else if (choice === 'template') {
                     saveTemplate(c.block);
