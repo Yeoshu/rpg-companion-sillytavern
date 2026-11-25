@@ -93,8 +93,8 @@
     "template.settingsModal.advancedTitle": "Advanced",
     "template.settingsModal.advanced.encounterHistoryDepth": "Chat History Depth For Encounters:",
     "template.settingsModal.advanced.encounterHistoryDepthNote": "Number of recent messages to include in combat initialization.",
-    "template.settingsModal.advanced.autoSaveCombatLogs": "Auto-save Combat Logs",
-    "template.settingsModal.advanced.autoSaveCombatLogsNote": "Save detailed combat logs to file for future reference and analysis.",
+    "template.settingsModal.advanced.autoSaveCombatLogs": "Keep combat logs in the chat",
+    "template.settingsModal.advanced.autoSaveCombatLogsNote": "The last 10 fights of each chat, with their full log and summary. They can be exported as files.",
     "template.settingsModal.advanced.clearCacheNote": "Clears committed and displayed tracker data for your currently active chat.",
     "template.settingsModal.advanced.generationMode": "Generation Mode:",
     "template.settingsModal.advanced.generationModeOptions.together": "Together with Main Generation",
@@ -546,5 +546,13 @@
     "template.settingsModal.advanced.aiTactics": "AI chooses enemy actions",
     "template.settingsModal.advanced.aiTacticsNote": "One AI call per enemy action, so enemies act in character. Off: enemies use fast local tactics.",
     "template.settingsModal.advanced.equalSpeed": "Equal speed in combat",
-    "template.settingsModal.advanced.equalSpeedNote": "Everyone acts once per turn in DEX order, instead of faster characters acting more often."
+    "template.settingsModal.advanced.equalSpeedNote": "Everyone acts once per turn in DEX order, instead of faster characters acting more often.",
+    "template.settingsModal.advanced.viewCombatLogs": "View combat logs",
+    "template.settingsModal.advanced.syncTracker": "Update the tracker after a fight",
+    "template.settingsModal.advanced.syncTrackerNote": "Health and Energy are set from your HP and END when the fight ends, and used items come off your inventory.",
+    "template.settingsModal.advanced.aiDelay": "Pause between enemy actions (ms):",
+    "template.settingsModal.sheet.budgetTolerance": "Scale AI enemies above budget ×",
+    "template.settingsModal.sheet.tiersNote": "Enemy tiers: budget × the level budget, and × HP (also × EXP). Defaults were tuned by simulation; see docs/COMBAT_DESIGN.md §7.",
+    "template.settingsModal.sheet.tierBudget": "Budget ×",
+    "template.settingsModal.sheet.tierHp": "HP ×"
 }

@@ -465,6 +465,7 @@ export function setupSettingsPopup() {
         extensionSettings.exp = 0;
         extensionSettings.combatSheet = null;
         extensionSettings.statBlocks = {};
+        extensionSettings.encounterLogs = [];
         extensionSettings.resolvedQuests = [];
 
         // Clear quests

@@ -370,7 +370,7 @@ export async function buildEncounterInitPrompt(setup = {}) {
  * @param {string} result - Combat result ('victory', 'defeat', or 'fled')
  * @returns {Promise<Array>} Message array for the API
  */
-export async function buildCombatSummaryPrompt(combatLog, result) {
+export async function buildCombatSummaryPrompt(combatLog, result, aftermath = '') {
     const context = getContext();
     const userName = context.name1;
 
@@ -470,6 +470,7 @@ export async function buildCombatSummaryPrompt(combatLog, result) {
             summaryMessage += `${entry.action || ''}\n${entry.result || ''}\n`;
         }
     }
+    if (aftermath) summaryMessage += `\nAfter the fight: ${aftermath}.\n`;
     summaryMessage += `\n\nProvide a narrative summary of the entire fight in a way that fits the style from the chat history. Start with [FIGHT CONCLUDED] on the first line, then provide the description.\n\n`;
     summaryMessage += `Write with intent in ${tense} tense ${person}-person ${narration} from ${pov}'s point of view.\n`;
     summaryMessage += `Build novel prose. Break patterns from your previous responses by varying sentence structures, rhythms, formats, and openings. If you last started with a narration, begin this one with dialogue; if with an action, switch to an internal thought. Track whether a sentence shape, cadence, sensory detail, or a descriptor appeared recently, and replace it with a different one or skip it entirely. If you mentioned a physical feature, mannerism, or expression once, move on. Don't fixate on the same traits every turn. Well-placed humor, unconventional similes, and subverted turns of phrase are encouraged. Avoid GPTisms, purple prose, and anaphoras, especially the negatives with "no/not/wasn't/didn't." Refrain from describing actions or emotions via negation; focus on what does happen, not what doesn't. Minimize asterisks, ellipses, and em-dashes. Explicit content is allowed. Never end on handover cues; finish naturally.\n\n`;
@@ -481,7 +482,9 @@ export async function buildCombatSummaryPrompt(combatLog, result) {
     if (extensionSettings.generationMode === 'together' && (extensionSettings.showUserStats || extensionSettings.showInfoBox || isPresentCharactersEnabled())) {
         summaryMessage += `\n--- TRACKER UPDATE ---\n\n`;
         summaryMessage += `After the [FIGHT CONCLUDED] summary, update the RPG trackers to reflect ${userName}'s state AFTER the combat encounter. `;
-        summaryMessage += `Account for any injuries sustained, resources used, emotional state changes, or other consequences of the battle.\n\n`;
+        summaryMessage += aftermath
+            ? `These values are already final; use them exactly: ${aftermath}. Account for any other consequences of the battle (emotional state, conditions, etc.).\n\n`
+            : `Account for any injuries sustained, resources used, emotional state changes, or other consequences of the battle.\n\n`;
 
         // Include pre-combat tracker state if available
         if (committedTrackerData.userStats || committedTrackerData.infoBox || committedTrackerData.characterThoughts) {

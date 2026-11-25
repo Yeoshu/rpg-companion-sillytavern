@@ -33,8 +33,22 @@ Status: **agreed**. Built so far:
     characters keep their HP and END (at least 1) between fights. The
     Characters manager (from the preview or the character sheet) edits,
     rests and deletes them.
-- Not yet (step 5): writing HP, END and items back to the tracker, saving
-  encounter logs per chat, and the remaining settings.
+- Step 5, persistence and settings:
+  - **Tracker write-back** (`features/combatAftermath.js`, pure part in
+    `mechanics/combat/aftermath.js`): when the fight ends, Health and Energy
+    are set from your HP and END (as a share of each stat's maximum), and
+    used items come off the On Person inventory (or the sheet's own quantity
+    for items not in the inventory). The summary prompt is given these exact
+    values, so its tracker update agrees. Settings → Advanced → "Update the
+    tracker after a fight".
+  - **Combat logs**: the last 10 fights per chat (log, narration, summary,
+    who took part), with a viewer, export and delete (Settings → Advanced →
+    View combat logs).
+  - **Settings**: tier budget and HP multipliers, the over-budget tolerance
+    (Settings → Character Sheet), the pause between enemy actions, equal
+    speed, narration mode and AI tactics (Settings → Advanced).
+
+The overhaul is complete.
 
 Decisions on the open questions are at the end; balance changes found by
 simulation are marked in §2, §3 and §7.

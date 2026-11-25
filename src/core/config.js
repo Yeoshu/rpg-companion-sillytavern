@@ -95,6 +95,7 @@ export const defaultSettings = {
     sheetLibrary: [], // Saved character sheets, reusable across chats
     statBlocks: {}, // Per-chat stat blocks of recurring NPCs, keyed by lowercase name (they keep their HP between fights)
     npcTemplates: [], // Generic stat blocks ("Goblin") reusable in any chat
+    encounterLogs: [], // Per-chat logs of the last fights (features/combatAftermath.js)
     combat: { // Combat tuning (see src/systems/mechanics/combat/catalog.js DEFAULT_COMBAT)
         startingPool: 50,
         apCapBase: 25,

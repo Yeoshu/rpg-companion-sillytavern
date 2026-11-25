@@ -3,6 +3,7 @@
  * Handles rendering of the user stats panel with progress bars and classic RPG stats
  */
 
+import { parseEntry } from '../mechanics/combat/inventory.js';
 import { getContext } from '../../../../../../extensions.js';
 import { user_avatar } from '../../../../../../../script.js';
 import {
@@ -96,9 +97,9 @@ export function buildUserStatsText() {
 /**
  * Updates lastGeneratedData.userStats and committedTrackerData.userStats
  * Maintains JSON format if current data is JSON, otherwise uses text format.
- * @private
+ * Exported for changes made outside the panel (e.g. after a fight).
  */
-function updateUserStatsData() {
+export function updateUserStatsData() {
     // Check if current data is in JSON format
     const currentData = lastGeneratedData.userStats || committedTrackerData.userStats;
     if (currentData) {
@@ -158,13 +159,8 @@ function updateUserStatsData() {
                     const convertToV3Items = (itemString) => {
                         if (!itemString) return [];
                         const items = itemString.split(',').map(s => s.trim()).filter(s => s);
-                        return items.map(item => {
-                            const qtyMatch = item.match(/^(\\d+)x\\s+(.+)$/);
-                            if (qtyMatch) {
-                                return { name: qtyMatch[2].trim(), quantity: parseInt(qtyMatch[1]) };
-                            }
-                            return { name: item, quantity: 1 };
-                        });
+                        // "3x Potions", "Potion x3", "Potion (3)" → { name, quantity }
+                        return items.map(item => parseEntry(item));
                     };
 
                     jsonData.inventory = {

@@ -28,9 +28,10 @@ import { getSafeThumbnailUrl } from '../../utils/avatars.js';
 import {
     currentEncounter,
     updateCurrentEncounter,
-    resetEncounter,
-    saveEncounterLog
+    resetEncounter
 } from '../features/encounterState.js';
+import { applyAftermath, saveEncounterRecord } from '../features/combatAftermath.js';
+import { describeAftermath } from '../mechanics/combat/aftermath.js';
 import {
     buildEncounterInitPrompt,
     buildCombatSummaryPrompt,
@@ -89,8 +90,8 @@ export class EncounterModal {
         this.narratedUpTo = 0;
         this.intents = new Map();
         this.thinking = '';
-        /** Pause between AI-controlled actions, so the fight can be followed. */
-        this.aiDelay = 600;
+        /** Pause between AI-controlled actions (ms); null uses the setting. */
+        this.aiDelay = null;
     }
 
     /** Opens the window: narrative style first, then the set-up call. */
@@ -178,7 +179,7 @@ export class EncounterModal {
                 playerSheet: describeStatBlock(player, deriveValues(player, settings)),
                 level,
                 budgets,
-                perLevel: Math.max(1, Math.round(progression.pointsPerLevel * TIERS.standard.budget)),
+                perLevel: Math.max(1, Math.round(progression.pointsPerLevel * settings.tiers.standard.budget)),
                 known: this.known
             });
             const response = await safeGenerateRaw({ prompt, quietToLoud: false });
@@ -357,8 +358,9 @@ export class EncounterModal {
                 let action = null;
                 if (extensionSettings.encounterSettings?.aiTactics) {
                     action = await this.aiChoose(c);
-                } else if (this.aiDelay) {
-                    await sleep(this.aiDelay);
+                } else {
+                    const delay = this.aiDelay ?? getCombatSettings().aiDelay;
+                    if (delay) await sleep(delay);
                 }
                 if (this.closed || this.state.over) break;
                 act(this.state, action || chooseAction(this.state, id));
@@ -761,6 +763,9 @@ export class EncounterModal {
             this.showCombatOverScreen(result);
             this.awardCombatExp(result);
             rememberWounds(this.state.combatants.map(c => ({ ...c, hp: Math.max(1, c.hp) })));
+            const aftermath = applyAftermath(this.state);
+            const facts = aftermath ? describeAftermath(aftermath.out, this.player.name, aftermath) : '';
+            this.showAftermath(aftermath);
             this.offerToSave();
 
             const lines = [];
@@ -779,9 +784,17 @@ export class EncounterModal {
             lines.push(...narrated(this.state.log.length));
             currentEncounter.encounterLog = lines;
 
-            const summaryPrompt = await buildCombatSummaryPrompt(lines, result);
+            const record = {
+                result,
+                environment: this.roster.environment,
+                combatants: this.state.combatants.map(c => ({ name: c.name, side: c.side, hp: c.hp, maxHp: c.maxHp, out: c.out, fled: c.fled })),
+                lines,
+                summary: ''
+            };
+            const summaryPrompt = await buildCombatSummaryPrompt(lines, result, facts);
             const response = await safeGenerateRaw({ prompt: summaryPrompt, quietToLoud: false });
             if (!response) {
+                saveEncounterRecord(record);
                 this.updateCombatOverScreen(false);
                 return;
             }
@@ -799,8 +812,7 @@ export class EncounterModal {
                 }
                 this.updateCombatOverScreen(true, 'chat');
             }
-            const context = getContext();
-            if (context.chatId) saveEncounterLog(context.chatId, { log: lines, summary, result });
+            saveEncounterRecord({ ...record, summary });
         } catch (error) {
             console.error('[RPG Companion] Error ending combat:', error);
             this.updateCombatOverScreen(false);
@@ -826,6 +838,23 @@ export class EncounterModal {
         list.innerHTML = `<div class="rpg-encounter-exp-total">+${rewards.total} ${esc(t('progression.exp', 'EXP'))}</div>`
             + rewards.enemies.map(e => `<div>${esc(e.name)} <span>(${lvl} ${e.level}${e.tier !== 'standard' ? `, ${esc(e.tier)}` : ''})</span> +${e.exp}</div>`).join('');
         overScreen.querySelector('h2')?.after(list);
+    }
+
+    /** Shows what the fight changed on the tracker (Health, Energy, items). */
+    showAftermath(aftermath) {
+        const overScreen = this.modal?.querySelector('.rpg-encounter-over');
+        if (!overScreen || !aftermath) return;
+        const { out, healthMax, energyMax } = aftermath;
+        const rows = [];
+        if (out.health !== null) rows.push(`<span><i class="fa-solid fa-heart"></i> ${esc(t('encounter.ui.health', 'Health'))} ${out.health}/${healthMax}</span>`);
+        if (out.energy !== null) rows.push(`<span><i class="fa-solid fa-bolt"></i> ${esc(t('encounter.ui.energy', 'Energy'))} ${out.energy}/${energyMax}</span>`);
+        for (const item of out.items) rows.push(`<span><i class="fa-solid fa-flask"></i> ${esc(item.name)} ${item.before} → ${item.after}</span>`);
+        if (!rows.length) return;
+        const box = document.createElement('div');
+        box.className = 'rpg-combat-aftermath';
+        box.title = t('encounter.ui.aftermathHint', 'Written back to the tracker');
+        box.innerHTML = rows.join('');
+        overScreen.querySelector('p').before(box);
     }
 
     /**

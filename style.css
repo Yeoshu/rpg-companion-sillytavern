@@ -4388,6 +4388,35 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
 
 .rpg-combat-save > button { align-self: flex-end; }
 
+/* Aftermath, logs, tier settings */
+.rpg-combat-aftermath {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.3em 0.9em;
+    font-size: 0.95em;
+}
+
+.rpg-combat-aftermath i { color: var(--rpg-highlight); }
+
+.rpg-combat-logs details summary {
+    cursor: pointer;
+    opacity: 0.8;
+}
+
+.rpg-combat-logs-text {
+    max-height: 18em;
+    overflow-y: auto;
+    padding: 0.4em;
+    font-size: 0.85em;
+    white-space: pre-wrap;
+}
+
+.rpg-tier-grid {
+    grid-template-columns: auto 1fr 1fr;
+    align-items: center;
+}
+
 /* Result screen */
 .rpg-encounter-over {
     display: flex;

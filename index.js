@@ -153,6 +153,7 @@ import { getProgression } from './src/systems/features/experience.js';
 import { DEFAULT_PROGRESSION } from './src/systems/mechanics/progression.js';
 import { normalizeCombatSettings } from './src/systems/mechanics/combat/catalog.js';
 import { getCombatSettings } from './src/systems/features/sheet.js';
+import { openEncounterLogs } from './src/systems/ui/encounterLogViewer.js';
 import { getAttributes } from './src/systems/mechanics/character.js';
 
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
@@ -484,10 +485,13 @@ async function initUI() {
         saveSettings();
     });
     // Character sheet / combat tuning
-    $(document).on('change', '[data-combat], [data-combat-role]', function() {
-        const current = { ...getCombatSettings(), roles: { ...getCombatSettings().roles } };
+    $(document).on('change', '[data-combat], [data-combat-role], [data-combat-tier]', function() {
+        const current = JSON.parse(JSON.stringify(getCombatSettings()));
         if ($(this).is('[data-combat-role]')) {
             current.roles[$(this).data('combat-role')] = $(this).val();
+        } else if ($(this).is('[data-combat-tier]')) {
+            const [tier, key] = String($(this).data('combat-tier')).split('.');
+            current.tiers[tier][key] = Number($(this).val());
         } else {
             const value = Number($(this).val());
             current[$(this).data('combat')] = Number.isFinite(value) ? value : undefined;
@@ -530,6 +534,12 @@ async function initUI() {
         saveSettings();
         togglePlotButtons(); // This also controls encounter button visibility
     });
+
+    $('#rpg-toggle-sync-tracker').on('change', function() {
+        extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), syncTracker: $(this).prop('checked') });
+        saveSettings();
+    });
+    $('#rpg-view-combat-logs').on('click', () => openEncounterLogs());
 
     $('#rpg-encounter-narration').on('change', function() {
         extensionSettings.encounterSettings = { ...(extensionSettings.encounterSettings || {}), narration: $(this).val() === 'end' ? 'end' : 'phase' };
@@ -1298,6 +1308,11 @@ function fillCombatInputs() {
     $('[data-combat]').each(function() {
         $(this).val(values[$(this).data('combat')]);
     });
+    $('[data-combat-tier]').each(function() {
+        const [tier, key] = String($(this).data('combat-tier')).split('.');
+        $(this).val(values.tiers[tier][key]);
+    });
+    $('#rpg-toggle-sync-tracker').prop('checked', values.syncTracker);
     const attributes = getAttributes();
     $('[data-combat-role]').each(function() {
         const role = $(this).data('combat-role');

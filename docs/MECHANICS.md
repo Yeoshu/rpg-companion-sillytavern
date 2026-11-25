@@ -166,10 +166,14 @@ The progression numbers are in Settings → Progression; the starting pool, the
 Active Point guide and which attributes act as STR/DEX/CON are in Settings →
 Character Sheet.
 
+## Combat
+
+Encounters run on the same 3d6 rules through a local combat engine; see
+`docs/COMBAT_DESIGN.md`.
+
 ## Not built yet
 
 Natural next steps for the system:
 
 - NPC attributes/skills, and opposed checks (both sides roll, compare margins).
-- Feeding encounter combat through the same rules instead of AI judgement.
 - A "check" mode in the manual dice roller.

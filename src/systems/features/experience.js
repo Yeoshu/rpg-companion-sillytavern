@@ -12,8 +12,7 @@
  */
 
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../../popup.js';
-import { sheetPoints } from './sheet.js';
-import { TIERS } from '../mechanics/combat/catalog.js';
+import { getCombatSettings, sheetPoints } from './sheet.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
@@ -119,7 +118,8 @@ export function encounterRewards(enemies, result) {
     const rows = beaten.map(enemy => {
         const level = Math.max(1, Math.round(Number(enemy.level)) || playerLevel);
         // Tougher tiers are worth more (minion ×0.5 … boss ×2, the tier's HP multiplier).
-        const tier = TIERS[enemy.tier] || TIERS.standard;
+        const tiers = getCombatSettings().tiers;
+        const tier = tiers[enemy.tier] || tiers.standard;
         return { name: String(enemy.name || '?'), level, tier: enemy.tier || 'standard', exp: Math.max(1, Math.round(enemyReward(level, playerLevel, settings) * tier.hp)) };
     });
     return { total: rows.reduce((sum, row) => sum + row.exp, 0), enemies: rows };

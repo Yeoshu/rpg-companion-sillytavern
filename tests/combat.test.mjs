@@ -405,3 +405,13 @@ test('buildRoster validates, names, budgets and scales AI stat blocks', () => {
     assert.equal(r.environment, 'A cave.');
     assert.deepEqual(buildRoster(null).enemies, []);
 });
+
+test('tier multipliers are configurable', () => {
+    const s = normalizeCombatSettings({ tiers: { boss: { budget: 1.5, hp: 4 }, minion: { budget: 'x' } } });
+    assert.equal(s.tiers.boss.budget, 1.5);
+    assert.equal(s.tiers.minion.budget, 0.4, 'invalid falls back');
+    assert.equal(tierBudget(1, 'boss', 5, s), 75);
+    assert.equal(deriveValues(normalizeStatBlock({ name: 'B', tier: 'boss' }), s).maxHp, 160);
+    assert.equal(normalizeCombatSettings({}).syncTracker, true);
+    assert.equal(normalizeCombatSettings({ aiDelay: 99999 }).aiDelay, 5000);
+});
