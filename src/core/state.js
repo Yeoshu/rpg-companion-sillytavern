@@ -270,7 +270,10 @@ export let extensionSettings = {
         apCapPerLevel: 5,
         budgetTolerance: 1.1,
         equalSpeed: false,
-        roles: { str: 'str', dex: 'dex', con: 'con' }
+        roles: { str: 'str', dex: 'dex', con: 'con' },
+        glimmerEnabled: true,
+        glimmerChance: 5,
+        glimmerMaxPerFight: 1
     },
     resolvedQuests: [], // Per-chat quests already completed/removed/answered (lowercase titles)
     askAboutDroppedQuests: true, // Ask whether quests the tracker AI removes were completed

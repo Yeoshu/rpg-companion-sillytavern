@@ -1472,6 +1472,14 @@ input.rpg-builder-status-name {
     width: auto;
 }
 
+textarea.rpg-sheet-glimmer-prefs {
+    width: 100%;
+}
+
+.rpg-sheet-glimmered {
+    color: var(--SmartThemeQuoteColor);
+}
+
 input.rpg-sheet-strike-desc {
     flex: 1 1 100%;
 }
@@ -4582,6 +4590,37 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
 
 .rpg-encounter-opponent textarea {
     width: 100%;
+}
+
+.rpg-combat-glimmer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35em;
+    padding: 0.7em;
+    background: color-mix(in srgb, var(--rpg-highlight) 12%, var(--rpg-bg));
+    border: 1px solid var(--rpg-highlight);
+    border-radius: var(--rpg-radius);
+    box-shadow: 0 0 1.2em color-mix(in srgb, var(--rpg-highlight) 35%, transparent);
+}
+
+.rpg-combat-glimmer-title {
+    color: var(--rpg-highlight);
+    font-weight: 600;
+}
+
+.rpg-combat-glimmer-name {
+    font-size: 1.15em;
+}
+
+.rpg-combat-glimmer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4em;
+}
+
+.rpg-combat-log-glimmer {
+    color: var(--rpg-highlight);
+    font-weight: 600;
 }
 
 /* Result screen */

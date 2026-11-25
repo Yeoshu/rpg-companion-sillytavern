@@ -43,15 +43,16 @@ import { deriveValues, statBlockPoints, tierBudget } from '../mechanics/combat/c
 import { describeAbility, describeEffect, describeStatBlock } from '../mechanics/combat/describe.js';
 import { buildRoster } from '../mechanics/combat/roster.js';
 import {
-    act, advance, availableActions, conclude, createCombat, say, describeStatus, effective, getCombatant, hitChance,
+    act, advance, availableActions, conclude, createCombat, note, say, describeStatus, effective, getCombatant, hitChance,
     isActive, upcomingPhases, validTargets
 } from '../mechanics/combat/engine.js';
 import { chooseAction } from '../mechanics/combat/tactics.js';
-import { getCombatSettings, playerCombatBlock, trackerFraction } from '../features/sheet.js';
+import { addGlimmeredAbility, getCombatSheet, getCombatSettings, normalizeSheet, playerCombatBlock, trackerFraction } from '../features/sheet.js';
 import {
     buildFreeActionPrompt, buildNarrationPrompt, buildTacticsPrompt, cleanNarration, parseFreeAction, parseTactics
 } from '../mechanics/combat/aiPrompts.js';
-import { apCap } from '../mechanics/combat/costs.js';
+import { abilityCost, abilityPoints, apCap, getModifier } from '../mechanics/combat/costs.js';
+import { buildGlimmerPrompt, glimmerChance, glimmerTargetAp, GLIMMER_TIER_FACTOR, parseGlimmer } from '../mechanics/combat/glimmer.js';
 import { baseName, looksGeneric, matchStatBlocks } from '../mechanics/combat/npcs.js';
 import { checkTarget, DIFFICULTIES, formatTarget, successChance } from '../mechanics/rules.js';
 import { getAttributes, getSkills } from '../mechanics/character.js';
@@ -344,6 +345,8 @@ export class EncounterModal {
         this.selecting = null;
         this.queue = [];
         this.lastSide = null;
+        this.glimmerCount = 0;
+        this.glimmerOffer = null;
         this.renderBattle();
         this.run();
     }
@@ -387,7 +390,9 @@ export class EncounterModal {
                     if (delay) await sleep(delay);
                     if (this.closed || this.state.over) break;
                     if (next.intent) this.intents.set(this.state.log.length, `(${c.name} meant to: "${next.intent}")`);
-                    act(this.state, next.action);
+                    const queuedAction = await this.maybeGlimmer(c, next.action);
+                    if (this.closed || this.state.over) break;
+                    act(this.state, queuedAction);
                     this.renderBattle();
                     continue;
                 }
@@ -594,14 +599,147 @@ export class EncounterModal {
     }
 
     /** The current player-controlled combatant takes an action. */
-    playerAction(action, intent = '') {
+    async playerAction(action, intent = '') {
         const current = this.state && getCombatant(this.state, this.state.current);
-        if (!current || current.controlled !== 'player' || this.running || this.thinking) return;
+        if (!current || current.controlled !== 'player' || this.running || this.thinking || this.glimmerOffer) return;
         this.selecting = null;
         if (intent) this.intents.set(this.state.log.length, `(${current.name} meant to: "${intent}")`);
+        this.running = true; // nothing else may act while a glimmer is being worked out
+        try {
+            action = await this.maybeGlimmer(current, action);
+        } finally {
+            this.running = false;
+        }
+        if (this.closed || this.state.over) return;
         act(this.state, action);
         this.renderBattle();
         this.run();
+    }
+
+    /* -----------------------------------------------------------------------
+       Glimmers (mechanics/combat/glimmer.js)
+       ----------------------------------------------------------------------- */
+
+    /**
+     * Before the player's technique resolves: maybe it sparks a glimmer. If a
+     * new ability is learned, it's used straight away instead.
+     * @returns {Promise<object>} the action to perform
+     */
+    async maybeGlimmer(c, action) {
+        const settings = getCombatSettings();
+        if (!c.isPlayer || !settings.glimmerEnabled || this.glimmerCount >= settings.glimmerMaxPerFight) return action;
+        if (action.type !== 'ability' && action.type !== 'strike') return action;
+        const { abilities } = availableActions(this.state, c.id);
+        const seed = abilities.find(o => o.ability.id === (action.type === 'strike' ? 'strike' : action.abilityId))?.ability;
+        if (!seed) return action;
+        const enemies = this.state.combatants.filter(x => isActive(x) && x.side !== c.side);
+        let enemy = enemies.find(x => x.id === action.targetId);
+        if (!enemy && ['all-enemies', 'everyone'].includes(seed.target)) {
+            const weight = x => (x.block.level || 1) * (GLIMMER_TIER_FACTOR[x.block.tier] ?? 1);
+            enemy = [...enemies].sort((a, b) => weight(b) - weight(a))[0];
+        }
+        if (!enemy) return action;
+        const chance = glimmerChance(enemy.block, c.block.level, settings.glimmerChance);
+        if (!(this.glimmerRng() < chance)) return action;
+        this.glimmerCount += 1;
+        return this.glimmer(c, seed, enemy, action);
+    }
+
+    glimmerRng() {
+        return Math.random();
+    }
+
+    async glimmer(c, seed, enemy, action) {
+        const settings = getCombatSettings();
+        const cap = apCap(c.block.level, settings);
+        note(this.state, c.id, 'glimmer', `💡 ${c.name} has a flash of inspiration in the middle of ${seed.name}!`);
+        const rejected = [];
+        let failures = 0;
+        while (!this.closed) {
+            this.thinking = t('encounter.ui.glimmering', '💡 Glimmer! A new technique is taking shape...');
+            this.renderBattle();
+            let ability = null;
+            try {
+                const prompt = buildGlimmerPrompt({
+                    userName: c.name,
+                    block: c.block,
+                    derived: deriveValues(c.block, settings),
+                    seed,
+                    enemy: enemy.block,
+                    preferences: getCombatSheet().glimmerPreferences || '',
+                    targetAp: glimmerTargetAp(seed, cap),
+                    rejected,
+                    environment: this.roster?.environment
+                });
+                const response = await safeGenerateRaw({ prompt, quietToLoud: false });
+                ability = parseGlimmer(parseEncounterJSON(response), cap);
+            } catch (error) {
+                console.warn('[RPG Companion] Glimmer failed:', error);
+            } finally {
+                this.thinking = '';
+            }
+            if (!ability) {
+                if (++failures < 2) continue;
+                toastr.warning(t('encounter.ui.glimmerFailed', 'The glimmer faded: the AI did not return a usable ability.'));
+                note(this.state, c.id, 'glimmer', `The idea slips away before ${c.name} can grasp it.`);
+                this.renderBattle();
+                return action;
+            }
+            const choice = await this.offerGlimmer(c, ability);
+            if (choice === 'reroll') {
+                rejected.push(ability.name);
+                continue;
+            }
+            if (choice !== 'accept') {
+                note(this.state, c.id, 'glimmer', `${c.name} lets the idea go and sticks with ${seed.name}.`);
+                this.renderBattle();
+                return action;
+            }
+            const added = addGlimmeredAbility(ability);
+            if (!added) return action;
+            const learned = { ...added.ability };
+            c.block.abilities.push(learned);
+            const charges = getModifier(learned, 'charges');
+            if (charges) c.charges[learned.id] = charges.uses;
+            note(this.state, c.id, 'glimmer', `💡 ${c.name} learns ${learned.name}${learned.description ? ` (${learned.description})` : ''} and uses it at once!`);
+            toastr.success(esc(learned.name), t('encounter.ui.glimmerLearned', 'New ability learned'));
+            const target = SINGLE_TARGETS.includes(learned.target)
+                ? (learned.target === 'one-enemy' ? enemy.id : action.targetId)
+                : action.targetId;
+            return { type: 'ability', abilityId: learned.id, targetId: target, effectTargets: {} };
+        }
+        return action;
+    }
+
+    /** Shows the proposed ability in the window; resolves 'accept' | 'reroll' | 'decline'. */
+    offerGlimmer(c, ability) {
+        return new Promise(resolve => {
+            this.glimmerOffer = { c, ability, resolve: choice => { this.glimmerOffer = null; resolve(choice); } };
+            this.renderBattle();
+        });
+    }
+
+    renderGlimmerOffer() {
+        const { c, ability } = this.glimmerOffer;
+        const cost = abilityCost(ability);
+        const cp = abilityPoints(ability, normalizeSheet(getCombatSheet()).abilities);
+        return `
+            <div class="rpg-combat-glimmer">
+                <div class="rpg-combat-glimmer-title"><i class="fa-solid fa-lightbulb"></i> ${esc(t('encounter.ui.glimmerTitle', 'Glimmer! {name} discovers a new technique').replace('{name}', c.name))}</div>
+                <strong class="rpg-combat-glimmer-name">${esc(ability.name)}</strong>
+                ${ability.description ? `<em>${esc(ability.description)}</em>` : ''}
+                <div>${esc(describeAbility(ability))}</div>
+                <div class="rpg-combat-chips">
+                    <span class="rpg-combat-chip">${cost.ap} AP</span>
+                    ${cost.end ? `<span class="rpg-combat-chip">${cost.end} END</span>` : ''}
+                    <span class="rpg-combat-chip rpg-combat-chip-ok" title="${esc(t('encounter.ui.glimmerFreeHint', 'Glimmered abilities come with bonus CP equal to their cost'))}">${esc(t('encounter.ui.glimmerFree', 'free: +{cp} CP').replace('{cp}', cp))}</span>
+                </div>
+                <div class="rpg-combat-glimmer-actions">
+                    <button type="button" class="rpg-btn rpg-btn-primary" data-glimmer="accept"><i class="fa-solid fa-check"></i> ${esc(t('encounter.ui.glimmerAccept', 'Learn it'))}</button>
+                    <button type="button" class="rpg-btn rpg-btn-secondary" data-glimmer="reroll"><i class="fa-solid fa-dice"></i> ${esc(t('encounter.ui.glimmerReroll', 'Reroll'))}</button>
+                    <button type="button" class="rpg-btn rpg-btn-secondary" data-glimmer="decline"><i class="fa-solid fa-xmark"></i> ${esc(t('encounter.ui.glimmerDecline', 'Let it go'))}</button>
+                </div>
+            </div>`;
     }
 
     /** Dialogue: logged straight away, costs no phase (narrated with the rest of the turn). */
@@ -799,7 +937,7 @@ export class EncounterModal {
                 <div class="rpg-combat-grid">${side('enemies').map(c => this.renderCard(c)).join('')}</div>
                 <h3 class="rpg-combat-heading"><i class="fa-solid fa-users"></i> ${esc(t('encounter.ui.partyTitle', 'Party'))}</h3>
                 <div class="rpg-combat-grid">${side('party').map(c => this.renderCard(c)).join('')}</div>
-                ${this.thinking
+                ${this.glimmerOffer ? this.renderGlimmerOffer() : this.thinking
                     ? `<div class="rpg-combat-waiting"><i class="fa-solid fa-spinner fa-spin"></i> ${esc(this.thinking)}</div>`
                     : playerTurn && !this.running ? this.renderActionBar() : `<div class="rpg-combat-waiting">${current ? `<i class="fa-solid fa-hourglass-half"></i> ${esc(current.name)}…` : ''}</div>`}
                 <h3 class="rpg-combat-heading"><i class="fa-solid fa-scroll"></i> ${esc(t('encounter.ui.combatLog', 'Combat Log'))}</h3>
@@ -814,6 +952,7 @@ export class EncounterModal {
         main.querySelectorAll('[data-combat-basic]').forEach(btn => btn.addEventListener('click', () => this.commit({ type: btn.dataset.combatBasic })));
         main.querySelector('[data-combat-undo]')?.addEventListener('click', () => { this.queue.pop(); this.selecting = null; this.renderBattle(); });
         main.querySelector('[data-combat-go]')?.addEventListener('click', () => this.executeQueue());
+        main.querySelectorAll('[data-glimmer]').forEach(btn => btn.addEventListener('click', () => this.glimmerOffer?.resolve(btn.dataset.glimmer)));
         main.querySelector('[data-combat-cancel]')?.addEventListener('click', () => { this.selecting = null; this.renderBattle(); });
         const freeForm = main.querySelector('.rpg-combat-free');
         freeForm?.querySelector('[data-combat-say]')?.addEventListener('click', () => this.speak(freeForm.querySelector('input').value));

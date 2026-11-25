@@ -155,6 +155,11 @@ export async function openSheetEditor() {
             </section>
 
             <section class="rpg-sheet-section">
+                <h4><i class="fa-solid fa-lightbulb"></i> ${esc(t('sheet.glimmers', 'Glimmers'))} <small>${esc(t('sheet.glimmersHint', 'new abilities can spark in tough fights; glimmered ones come with their own points'))}</small></h4>
+                <textarea class="text_pole rpg-sheet-glimmer-prefs" data-glimmer-prefs rows="2" maxlength="1000" placeholder="${esc(t('sheet.glimmerPrefsPlaceholder', 'What kind of abilities should this character develop? e.g. frost magic and protecting allies; nothing flashy. Leave empty to let them grow from what they already have.'))}">${esc(work.sheet.glimmerPreferences || '')}</textarea>
+            </section>
+
+            <section class="rpg-sheet-section">
                 <h4>${esc(t('sheet.basicAttack', 'Basic attack'))} <small>${esc(t('sheet.basicAttackHint', 'free; its dice come from STR'))}</small></h4>
                 <div class="rpg-sheet-strike">
                     <input type="text" class="text_pole" data-strike="name" value="${esc(work.sheet.strike?.name || 'Strike')}" maxlength="60" placeholder="Strike">
@@ -223,7 +228,7 @@ export async function openSheetEditor() {
         return `
             <div class="rpg-sheet-card" data-kind="${kind}" data-index="${i}">
                 <div class="rpg-sheet-card-head">
-                    <strong>${esc(a.name)}</strong>
+                    <strong>${a.glimmered ? `<i class="fa-solid fa-lightbulb rpg-sheet-glimmered" title="${esc(t('sheet.glimmeredHint', 'Found through a glimmer'))}"></i> ` : ''}${esc(a.name)}</strong>
                     <span class="rpg-sheet-card-actions">
                         <button type="button" class="menu_button" data-action="sheet-edit" title="${esc(t('sheet.edit', 'Edit'))}"><i class="fa-solid fa-pen"></i></button>
                         <button type="button" class="menu_button" data-action="sheet-duplicate" title="${esc(t('sheet.duplicate', 'Duplicate'))}"><i class="fa-solid fa-copy"></i></button>
@@ -259,7 +264,7 @@ export async function openSheetEditor() {
             </div>
             <label class="rpg-sheet-dim rpg-sheet-bonus" title="${esc(t('sheet.bonusHint', 'Extra (or fewer) points on top of the level budget'))}">
                 ${esc(t('sheet.budgetLine', 'Budget: {base} for level {level}').replace('{base}', p.base).replace('{level}', work.level))} +
-                <input type="number" class="text_pole rpg-sheet-num" data-field="bonus" value="${p.bonus}" step="1"> ${esc(t('sheet.bonus', 'bonus'))}
+                <input type="number" class="text_pole rpg-sheet-num" data-field="bonus" value="${p.bonus}" step="1"> ${esc(t('sheet.bonus', 'bonus'))}${p.glimmer ? ` + ${p.glimmer} ${esc(t('sheet.fromGlimmers', 'from glimmers'))}` : ''}
             </label>`);
         for (const a of attributes) {
             const v = Number(work.attributes[a.id] ?? 10);
@@ -311,6 +316,9 @@ export async function openSheetEditor() {
         if (v) work.sheet.resistances[type] = v;
         else delete work.sheet.resistances[type];
         refresh();
+    });
+    $root.on('input change', '[data-glimmer-prefs]', function () {
+        work.sheet.glimmerPreferences = String($(this).val() || '');
     });
     $root.on('input change', '[data-strike]', function () {
         work.sheet.strike = { ...(work.sheet.strike || {}), [$(this).data('strike')]: $(this).val() };

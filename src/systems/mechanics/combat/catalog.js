@@ -113,6 +113,12 @@ export const DEFAULT_COMBAT = Object.freeze({
     aiDelay: 600,
     /** Write HP, END and used items back to the tracker after a fight. */
     syncTracker: true,
+    /** Glimmers: chance to discover a new ability when using one on an enemy. */
+    glimmerEnabled: true,
+    /** Base chance (%) against an even, standard enemy. */
+    glimmerChance: 5,
+    /** At most this many glimmers per fight. */
+    glimmerMaxPerFight: 1,
     /** Which attribute plays each role in the derived values. */
     roles: Object.freeze({ str: 'str', dex: 'dex', con: 'con' })
 });
@@ -128,6 +134,9 @@ export function normalizeCombatSettings(settings = {}) {
         equalSpeed: Boolean(settings.equalSpeed),
         aiDelay: Math.round(clamp(settings.aiDelay, 0, 5000, d.aiDelay)),
         syncTracker: settings.syncTracker === undefined ? d.syncTracker : Boolean(settings.syncTracker),
+        glimmerEnabled: settings.glimmerEnabled === undefined ? d.glimmerEnabled : Boolean(settings.glimmerEnabled),
+        glimmerChance: clamp(settings.glimmerChance, 0, 100, d.glimmerChance),
+        glimmerMaxPerFight: Math.round(clamp(settings.glimmerMaxPerFight, 0, 20, d.glimmerMaxPerFight)),
         tiers: Object.fromEntries(Object.entries(TIERS).map(([id, def]) => [id, {
             label: def.label,
             budget: clamp(settings.tiers?.[id]?.budget, 0.05, 10, def.budget),
@@ -289,6 +298,8 @@ export function normalizeAbility(raw, { item = false } = {}) {
         advantages: normalizeModifiers(raw.advantages, ADVANTAGES),
         limitations: normalizeModifiers(raw.limitations, LIMITATIONS)
     };
+    // Abilities discovered through a glimmer (see glimmer.js).
+    if (raw.glimmered) ability.glimmered = true;
     if (item || raw.quantity !== undefined) {
         ability.quantity = int(raw.quantity, 0, 999, 1);
         // Unlimited items (a wand, a holy symbol) are never used up.
