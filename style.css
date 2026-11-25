@@ -4348,6 +4348,7 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
 .rpg-combat-log-party.rpg-combat-log-action { border-left-color: var(--rpg-success); }
 .rpg-combat-log-enemies.rpg-combat-log-action { border-left-color: var(--rpg-danger); }
 .rpg-combat-log-system { color: var(--rpg-muted); font-style: italic; }
+.rpg-combat-log-speech { color: var(--rpg-highlight); }
 .rpg-combat-log-out,
 .rpg-combat-log-end { font-weight: 600; }
 
@@ -4453,6 +4454,27 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
 .rpg-tier-grid {
     grid-template-columns: auto 1fr 1fr;
     align-items: center;
+}
+
+.rpg-combat-queue {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3em;
+    font-size: 0.9em;
+}
+
+.rpg-combat-queue ol {
+    margin: 0;
+    padding-left: 1.4em;
+}
+
+.rpg-combat-queue-actions {
+    display: flex;
+    gap: 0.4em;
+}
+
+.rpg-encounter-opponent textarea {
+    width: 100%;
 }
 
 /* Result screen */
