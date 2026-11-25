@@ -545,6 +545,29 @@ Each step is usable and testable before the next one.
   into the set-up sheet, free-action and tactics prompts, and narration and
   the summary get the descriptions of the abilities that were used.
 
+## Glimmers
+
+After SaGa: abilities can spark on their own in tough fights, for characters
+who should grow rather than be fully designed (`mechanics/combat/glimmer.js`,
+tested).
+
+- **When**: each time the player uses an ability or their basic attack on
+  an enemy (not items, typed or basic actions), a local roll against
+  `base chance × tier factor × 1.4^(enemy level − your level)`, capped at
+  50%. Tier factor: minion ¼, standard 1, elite 2, boss 3. Base 5%, at most
+  1 glimmer per fight (Settings → Character Sheet).
+- **What**: the fight pauses ("💡 Glimmer!") and one AI call designs a new
+  ability that grows out of the technique being used, from the sheet and the
+  character's **glimmer preferences** (character sheet → Glimmers), aiming at
+  1.2 × the technique's AP + 5, capped at the AP guide for the level. You
+  can **learn it**, **reroll** (the AI is told not to repeat what was turned
+  down) or **let it go**.
+- **Learned**: it's added to the sheet (marked 💡) and used at once instead
+  of the chosen action, as in SaGa. The sheet gets **bonus CP equal to what
+  the ability cost it** when learned, so it's free; editing it later costs
+  normally, and deleting it keeps the points.
+- Glimmers are logged, so narration and the summary describe them.
+
 ## Decisions
 
 1. **Elements:** both sets: fire, water, earth, air, ice, lightning, plus

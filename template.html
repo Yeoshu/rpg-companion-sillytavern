@@ -728,6 +728,24 @@
                         <select class="rpg-input" data-combat-role="con"></select>
                     </label>
                 </div>
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-glimmers" />
+                    <span data-i18n-key="template.settingsModal.sheet.glimmers">Glimmers</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.sheet.glimmersNote">
+                    Using an ability or your basic attack on an enemy can spark a new ability (as in SaGa). The chance below is against an even, standard enemy: ×¼ for minions, ×2 for elites, ×3 for bosses, and ×1.4 for each level the enemy is above you. The AI designs the ability from your sheet and the preferences on your character sheet; glimmered abilities come with bonus CP equal to their cost.
+                </small>
+                <div class="rpg-progression-grid">
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.glimmerChance">Glimmer chance (%)</span>
+                        <input type="number" class="rpg-input" data-combat="glimmerChance" min="0" max="100" step="0.5" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.glimmerMax">Glimmers per fight</span>
+                        <input type="number" class="rpg-input" data-combat="glimmerMaxPerFight" min="0" max="20" step="1" />
+                    </label>
+                </div>
+
                 <small class="rpg-note" data-i18n-key="template.settingsModal.sheet.tiersNote">
                     Enemy tiers: budget × the level budget, and × HP (also × EXP). Defaults were tuned by simulation; see docs/COMBAT_DESIGN.md §7.
                 </small>

@@ -558,5 +558,9 @@
     "template.settingsModal.progression.questMemory": "Remind the AI of finished quests for (messages):",
     "template.settingsModal.progression.questMemoryNote": "Quests completed or abandoned are listed by name in the tracker prompt for this many messages, so they aren't created again. The quest rules themselves are in the Prompts editor (Quest Guidelines).",
     "template.promptsEditor.questPrompt.title": "Quest Guidelines",
-    "template.promptsEditor.questPrompt.note": "Added to every tracker update: how the AI names, updates, adds and finishes quests. Placeholders: {userName}, {recentQuests} (the quests finished or abandoned recently, so they aren't made again)."
+    "template.promptsEditor.questPrompt.note": "Added to every tracker update: how the AI names, updates, adds and finishes quests. Placeholders: {userName}, {recentQuests} (the quests finished or abandoned recently, so they aren't made again).",
+    "template.settingsModal.sheet.glimmers": "Glimmers",
+    "template.settingsModal.sheet.glimmersNote": "Using an ability or your basic attack on an enemy can spark a new ability (as in SaGa). The chance below is against an even, standard enemy: ×¼ for minions, ×2 for elites, ×3 for bosses, and ×1.4 for each level the enemy is above you. The AI designs the ability from your sheet and the preferences on your character sheet; glimmered abilities come with bonus CP equal to their cost.",
+    "template.settingsModal.sheet.glimmerChance": "Glimmer chance (%)",
+    "template.settingsModal.sheet.glimmerMax": "Glimmers per fight"
 }

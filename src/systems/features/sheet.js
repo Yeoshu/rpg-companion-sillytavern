@@ -17,7 +17,7 @@ import { normalizeProgression } from '../mechanics/progression.js';
 import {
     BUYABLE, DAMAGE_TYPES, RESISTANCES, normalizeAbility, normalizeCombatSettings, normalizeStatBlock, normalizeStrike
 } from '../mechanics/combat/catalog.js';
-import { apCap, abilityCost, levelBudget, statBlockPoints } from '../mechanics/combat/costs.js';
+import { apCap, abilityCost, abilityPoints, levelBudget, statBlockPoints } from '../mechanics/combat/costs.js';
 import { inventoryQuantity } from '../mechanics/combat/inventory.js';
 import { parseItems } from '../../utils/itemParser.js';
 
@@ -28,7 +28,7 @@ export function getCombatSettings() {
 }
 
 export function emptySheet() {
-    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0, strike: normalizeStrike(null) };
+    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0, strike: normalizeStrike(null), glimmerPoints: 0, glimmerPreferences: '' };
 }
 
 /** Cleans a stored sheet (abilities and items go through the catalog sanitizers). */
@@ -46,6 +46,9 @@ export function normalizeSheet(raw) {
     sheet.items = (raw.items || []).map(a => normalizeAbility(a, { item: true })).filter(Boolean);
     sheet.bonusPoints = Math.round(Number(raw.bonusPoints) || 0);
     sheet.strike = normalizeStrike(raw.strike);
+    // Glimmered abilities come with bonus CP equal to their cost when found.
+    sheet.glimmerPoints = Math.max(0, Math.round(Number(raw.glimmerPoints) || 0));
+    sheet.glimmerPreferences = String(raw.glimmerPreferences ?? '').slice(0, 1000);
     return sheet;
 }
 
@@ -108,7 +111,32 @@ export function sheetPoints(parts = {}) {
     const spent = statBlockPoints(block, { skillCost: progression.skillCost, attributeCost: progression.attributeCost });
     const base = levelBudget(block.level, progression.pointsPerLevel, settings);
     const bonus = Math.round(Number(sheet.bonusPoints) || 0);
-    return { ...spent, base, bonus, budget: base + bonus, unspent: base + bonus - spent.total };
+    const glimmer = Math.max(0, Math.round(Number(sheet.glimmerPoints) || 0));
+    const budget = base + bonus + glimmer;
+    return { ...spent, base, bonus, glimmer, budget, unspent: budget - spent.total };
+}
+
+/**
+ * Adds an ability found through a glimmer to this chat's sheet, with bonus CP
+ * equal to what it costs the sheet right now (so it's free; later changes
+ * cost as usual, and deleting it keeps the points).
+ * @returns {{ ability: object, points: number }}
+ */
+export function addGlimmeredAbility(raw) {
+    const sheet = getCombatSheet();
+    sheet.abilities = normalizeSheet(sheet).abilities;
+    const ability = normalizeAbility({ ...raw, glimmered: true });
+    if (!ability) return null;
+    delete ability.quantity;
+    let id = ability.id || 'glimmer';
+    let n = 2;
+    while (sheet.abilities.some(a => a.id === id)) id = `${ability.id}-${n++}`;
+    ability.id = id;
+    const points = abilityPoints(ability, sheet.abilities);
+    sheet.abilities.push(ability);
+    sheet.glimmerPoints = Math.max(0, Math.round(Number(sheet.glimmerPoints) || 0)) + points;
+    sheetChanged();
+    return { ability, points };
 }
 
 /** AP cap warning for one ability at the player's level. */

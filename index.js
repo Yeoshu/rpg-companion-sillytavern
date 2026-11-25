@@ -541,6 +541,10 @@ async function initUI() {
         togglePlotButtons(); // This also controls encounter button visibility
     });
 
+    $('#rpg-toggle-glimmers').on('change', function() {
+        extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), glimmerEnabled: $(this).prop('checked') });
+        saveSettings();
+    });
     $('#rpg-toggle-sync-tracker').on('change', function() {
         extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), syncTracker: $(this).prop('checked') });
         saveSettings();
@@ -1320,6 +1324,7 @@ function fillCombatInputs() {
         $(this).val(values.tiers[tier][key]);
     });
     $('#rpg-toggle-sync-tracker').prop('checked', values.syncTracker);
+    $('#rpg-toggle-glimmers').prop('checked', values.glimmerEnabled);
     const attributes = getAttributes();
     $('[data-combat-role]').each(function() {
         const role = $(this).data('combat-role');

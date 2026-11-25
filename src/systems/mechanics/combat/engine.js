@@ -316,6 +316,11 @@ export function say(state, actorId, text) {
     return log(state, c.id, 'speech', `${c.name} says: "${line}"`);
 }
 
+/** A line in the log from outside the rules (e.g. a glimmer), for narration and the summary. */
+export function note(state, actorId, kind, text) {
+    return log(state, actorId, kind, text);
+}
+
 /** Ends the fight early (Conclude Encounter). */
 export function conclude(state, result = 'interrupted') {
     if (!state.over) finish(state, result);
