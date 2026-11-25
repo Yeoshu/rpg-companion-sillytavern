@@ -107,6 +107,6 @@ export function describeStatBlock(block, derived) {
     if (res) lines.push(`Resistances: ${res}`);
     const flavour = a => (a.description ? ` ("${a.description}")` : '');
     for (const a of block.abilities || []) lines.push(`- ${a.name}${flavour(a)}: ${describeAbility(a)}`);
-    for (const a of block.items || []) lines.push(`- Item ${a.name}${a.quantity !== undefined ? ` x${a.quantity}` : ''}${flavour(a)}: ${describeAbility(a)}`);
+    for (const a of block.items || []) lines.push(`- Item ${a.name}${a.unlimited ? ' (unlimited)' : a.quantity !== undefined ? ` x${a.quantity}` : ''}${flavour(a)}: ${describeAbility(a)}`);
     return lines.join('\n');
 }

@@ -291,6 +291,8 @@ export function normalizeAbility(raw, { item = false } = {}) {
     };
     if (item || raw.quantity !== undefined) {
         ability.quantity = int(raw.quantity, 0, 999, 1);
+        // Unlimited items (a wand, a holy symbol) are never used up.
+        if (raw.unlimited) ability.unlimited = true;
     }
     return ability;
 }

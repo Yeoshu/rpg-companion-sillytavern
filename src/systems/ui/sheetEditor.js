@@ -214,7 +214,9 @@ export async function openSheetEditor() {
         let stock = '';
         if (kind === 'item') {
             const s = itemStock(a, carriedEntries());
-            stock = s.linked
+            stock = a.unlimited
+                ? `<span class="rpg-sheet-chip rpg-sheet-chip-ok"><i class="fa-solid fa-infinity"></i> ${esc(t('sheet.unlimited', 'unlimited'))}</span>`
+                : s.linked
                 ? `<span class="rpg-sheet-chip rpg-sheet-chip-ok" title="${esc(t('sheet.linkedHint', 'Quantity comes from the tracker inventory'))}"><i class="fa-solid fa-link"></i> ×${s.quantity} ${esc(t('sheet.inInventory', 'in inventory'))}</span>`
                 : `<label class="rpg-sheet-chip" title="${esc(t('sheet.notLinkedHint', 'Not found in the On Person inventory; using this quantity'))}">× <input type="number" class="text_pole rpg-sheet-qty" data-qty="${i}" value="${a.quantity ?? 1}" min="0" step="1"></label>`;
         }
@@ -510,7 +512,10 @@ function fromDraft(draft, kind) {
         advantages: pickMods(ADVANTAGES),
         limitations: pickMods(LIMITATIONS)
     };
-    if (kind === 'item') raw.quantity = draft.quantity ?? 1;
+    if (kind === 'item') {
+        raw.quantity = draft.quantity ?? 1;
+        raw.unlimited = Boolean(draft.unlimited);
+    }
     return normalizeAbility(raw, { item: kind === 'item' });
 }
 
@@ -608,7 +613,8 @@ export async function openAbilityBuilder(ability, { kind = 'ability', work, inde
                 <label><span>${esc(t('sheet.name', 'Name'))}</span><input type="text" class="text_pole" data-path="name" value="${esc(draft.name)}" placeholder="${esc(kind === 'item' ? 'Health Potion' : 'Fire Bolt')}"></label>
                 <label><span>${esc(t('builder.target', 'Target'))}</span><select class="text_pole" data-path="target">${TARGETS.map(x => opt(x, cap(describeTarget(x)), draft.target)).join('')}</select></label>
                 <label><span>${esc(t('builder.roll', 'Roll'))}</span><select class="text_pole" data-path="roll">${opt('attack', t('builder.attackRoll', 'Attack roll (vs DCV)'), draft.roll)}${opt('automatic', t('builder.automatic', 'Automatic'), draft.roll)}</select></label>
-                ${kind === 'item' ? `<label><span>${esc(t('builder.quantity', 'Quantity'))}</span>${num('quantity', draft.quantity ?? 1, 'min="0"')}</label>` : ''}
+                ${kind === 'item' ? `<label><span>${esc(t('builder.quantity', 'Quantity'))}</span>${draft.unlimited ? `<span class="rpg-sheet-dim">∞</span>` : num('quantity', draft.quantity ?? 1, 'min="0"')}
+                    <span class="checkbox_label rpg-builder-unlimited" title="${esc(t('builder.unlimitedHint', 'Never used up (e.g. a wand or a holy symbol); not counted in the inventory'))}"><input type="checkbox" data-path="unlimited" data-rerender ${draft.unlimited ? 'checked' : ''}> ${esc(t('builder.unlimited', 'Unlimited use'))}</span></label>` : ''}
                 <label class="rpg-builder-wide"><span>${esc(t('builder.description', 'Description (flavour only)'))}</span><textarea class="text_pole" rows="2" data-path="description">${esc(draft.description)}</textarea></label>
             </div>
 

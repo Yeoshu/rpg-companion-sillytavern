@@ -416,7 +416,7 @@ test('tier multipliers are configurable', () => {
     assert.equal(normalizeCombatSettings({ aiDelay: 99999 }).aiDelay, 5000);
 });
 
-import { abilitySlots } from '../src/systems/mechanics/combat/engine.js';
+import { abilitySlots, availableActions } from '../src/systems/mechanics/combat/engine.js';
 import { scalingDice } from '../src/systems/mechanics/combat/costs.js';
 
 test('damage can scale with STR or DEX (physical only, capped at own dice); addStr still works', () => {
@@ -507,4 +507,18 @@ test('separate targets: each effect with its own target is resolved (and rolled)
     act(state, { type: 'ability', abilityId: 'battle-surge', targetId: 'c2' }, fixed(3));
     assert.equal(getCombatant(state, 'c1').statuses[0].name, 'Surging', 'the buff goes to the user');
     assert.equal(state.log.filter(l => l.kind === 'roll').length, 4, 'no roll for the self effect');
+});
+
+test('unlimited items are never used up', () => {
+    const wand = { name: 'Wand', target: 'one-enemy', effects: [{ type: 'damage', dice: 2, damageType: 'lightning' }], quantity: 0, unlimited: true };
+    const state = duel({ items: [wand] }, { attributes: { con: 40 } });
+    assert.equal(normalizeAbility(wand, { item: true }).unlimited, true);
+    advance(state);
+    assert.ok(availableActions(state, 'c1').items[0].usable);
+    act(state, { type: 'item', itemId: 'wand', targetId: 'c2' }, fixed(3));
+    advance(state); act(state, { type: 'pass' });
+    advance(state);
+    act(state, { type: 'item', itemId: 'wand', targetId: 'c2' }, fixed(3));
+    assert.equal(state.log.filter(l => l.text.includes('uses Wand')).length, 2);
+    assert.equal(getCombatant(state, 'c1').items[0].quantity, 0);
 });

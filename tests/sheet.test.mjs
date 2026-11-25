@@ -64,3 +64,11 @@ test('aftermath: Health/Energy from HP/END, used items come off the inventory or
     const none = computeAftermath({ player: { ...player, items: player.block.items }, healthMax: null, energyMax: null, entries: [] });
     assert.deepEqual([none.health, none.energy, none.items], [null, null, []]);
 });
+
+test('aftermath leaves unlimited items alone', () => {
+    const player = { hp: 10, maxHp: 10, end: 0, maxEnd: 10,
+        block: { items: [{ id: 'wand', name: 'Wand', quantity: 1, unlimited: true }] },
+        items: [{ id: 'wand', name: 'Wand', quantity: 1, unlimited: true }] };
+    const out = computeAftermath({ player, entries: ['Wand'] });
+    assert.deepEqual([out.items, out.entries], [[], ['Wand']]);
+});

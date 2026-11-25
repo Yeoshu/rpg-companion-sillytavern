@@ -248,7 +248,7 @@ export class EncounterModal {
                     ${Object.keys(block.resistances || {}).length ? `<div class="rpg-combat-preview-stats rpg-combat-dim">${Object.entries(block.resistances).map(([k, v]) => `${esc(cap(v))}: ${esc(k)}`).join(' · ')}</div>` : ''}
                     <ul class="rpg-combat-preview-abilities">
                         ${block.abilities.map(a => `<li><strong>${esc(a.name)}</strong>: ${esc(describeAbility(a))}</li>`).join('')}
-                        ${(block.items || []).map(a => `<li><strong>${esc(a.name)}</strong> ×${a.quantity ?? 0}: ${esc(describeAbility(a))}</li>`).join('')}
+                        ${(block.items || []).map(a => `<li><strong>${esc(a.name)}</strong> ${a.unlimited ? '∞' : `×${a.quantity ?? 0}`}: ${esc(describeAbility(a))}</li>`).join('')}
                     </ul>
                     ${kind === 'ally' ? `
                         <label class="checkbox_label rpg-combat-control">
@@ -744,7 +744,7 @@ export class EncounterModal {
         };
         const itemButton = o => `
             <button type="button" class="rpg-combat-action" data-combat-item="${esc(o.ability.id)}" ${o.usable ? '' : 'disabled'} title="${esc(describeAbility(o.ability))}">
-                <span>${esc(o.ability.name)}</span><small>×${o.quantity}</small></button>`;
+                <span>${esc(o.ability.name)}</span><small>${o.unlimited ? '∞' : `×${o.quantity}`}</small></button>`;
         const basic = (type, icon, label, hint) => `
             <button type="button" class="rpg-combat-action rpg-combat-basic" data-combat-basic="${type}" title="${esc(hint)}"><span><i class="fa-solid ${icon}"></i> ${esc(label)}</span></button>`;
         return `
