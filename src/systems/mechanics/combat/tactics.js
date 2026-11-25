@@ -14,15 +14,16 @@
 
 import { isPhysical } from './catalog.js';
 import { scalingDice, statusCost } from './costs.js';
-import { abilitySlots, availableActions, effective, statusCategory, getCombatant, hitChance, resistanceMultiplier, validTargets } from './engine.js';
+import { abilitySlots, availableActions, effective, statusCategory, getCombatant, hitChance, resistanceMultiplier, swarmBonusDice, SWARM, validTargets } from './engine.js';
 
 const LOW_HP = 0.3;
 const AVG_D6 = 3.5;
 
 function expectedDamage(state, actor, target, ability, effect) {
     const eff = effective(state, actor);
-    const dice = effect.dice + scalingDice(eff, effect);
-    const raw = (dice * AVG_D6 + effect.flat) * resistanceMultiplier(target, effect.damageType);
+    const dice = effect.dice + scalingDice(eff, effect) + swarmBonusDice(actor);
+    const area = target.swarm && ['all-enemies', 'everyone'].includes(ability.target) ? SWARM.areaMultiplier : 1;
+    const raw = (dice * AVG_D6 + effect.flat) * resistanceMultiplier(target, effect.damageType) * area;
     const t = effective(state, target);
     return Math.max(0, raw - (isPhysical(effect.damageType) ? t.pd : t.ed));
 }

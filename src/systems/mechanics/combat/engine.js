@@ -36,6 +36,16 @@ export const SPEED_CHART = {
 export const DODGE_BONUS = 3;
 const LOW_HP = 0.3;
 
+/** Swarms: one combatant standing for a group of tiny creatures (rats, bats, insects). */
+export const SWARM = Object.freeze({
+    /** Extra damage dice per member alive beyond the first. */
+    dicePerMember: 0.5,
+    /** Area attacks hurt a swarm this much more. */
+    areaMultiplier: 1.5,
+    min: 2,
+    max: 20
+});
+
 /** Segments a combatant acts in at a given SPD. */
 export function phasesFor(spd, equalSpeed = false) {
     if (equalSpeed) return [12];
@@ -46,16 +56,22 @@ export function phasesFor(spd, equalSpeed = false) {
 // Set-up
 
 /**
- * @param {Array<{block: object, side: 'party'|'enemies', isPlayer?: boolean, controlled?: 'player'|'ai', hp?: number, end?: number}>} participants
+ * @param {Array<{block: object, side: 'party'|'enemies', isPlayer?: boolean, controlled?: 'player'|'ai', hp?: number, end?: number, swarm?: number, reserve?: boolean}>} participants
  *   `block` is a normalized stat block. `hp`/`end` override the starting values
  *   (from the tracker, or a stored NPC); otherwise the block's own hp/end or full.
+ *   `swarm`: the block is one member of a swarm of this many; the swarm acts
+ *   once per phase with the members' HP pooled and hits harder while it's big.
+ *   `reserve`: waits out of the fight and joins when someone on its side falls.
  * @param {{settings?: object, rng?: () => number}} [options]
  */
 export function createCombat(participants, { settings = {}, rng = Math.random } = {}) {
     const s = normalizeCombatSettings(settings);
     const combatants = participants.map((p, i) => {
-        const base = deriveValues(p.block, s);
-        const startHp = p.hp ?? p.block.hp;
+        const base = { ...deriveValues(p.block, s) };
+        const size = Math.round(Number(p.swarm) || 0);
+        const swarm = size >= SWARM.min ? { count: Math.min(SWARM.max, size), memberHp: base.maxHp } : null;
+        if (swarm) base.maxHp = swarm.memberHp * swarm.count;
+        const startHp = swarm ? undefined : (p.hp ?? p.block.hp);
         const startEnd = p.end ?? p.block.end;
         const charges = {};
         for (const a of p.block.abilities || []) {
@@ -64,7 +80,7 @@ export function createCombat(participants, { settings = {}, rng = Math.random } 
         }
         return {
             id: `c${i + 1}`,
-            name: p.block.name,
+            name: String(p.name || p.block.name),
             side: p.side === 'party' ? 'party' : 'enemies',
             isPlayer: Boolean(p.isPlayer),
             controlled: p.isPlayer ? 'player' : (p.controlled === 'player' ? 'player' : 'ai'),
@@ -81,7 +97,9 @@ export function createCombat(participants, { settings = {}, rng = Math.random } 
             out: false,
             fled: false,
             tie: rng(),
-            lastAttackerId: null
+            lastAttackerId: null,
+            ...(swarm ? { swarm } : {}),
+            ...(p.reserve ? { waiting: true } : {})
         };
     });
     for (const c of combatants) {
@@ -100,8 +118,16 @@ export function createCombat(participants, { settings = {}, rng = Math.random } 
         nextStatusId: 1
     };
     state.combatants = combatants;
+    for (const side of ['party', 'enemies']) {
+        if (!combatants.some(c => c.side === side && isActive(c))) reinforce(state, side, false);
+    }
     state.pending = actorsInSegment(state, 12, true);
     log(state, null, 'start', `Combat begins. Turn 1, segment 12: everyone acts.`);
+    for (const c of combatants) {
+        if (c.swarm) log(state, c.id, 'swarm', `${c.name}: a swarm of ${c.swarm.count} (they act together and hit harder while there are many; area attacks hurt them more).`);
+    }
+    const waiting = combatants.filter(c => c.waiting);
+    if (waiting.length) log(state, null, 'reserve', `Waiting to join: ${waiting.map(c => c.name).join(', ')} (one steps in whenever someone on their side falls).`);
     checkEnd(state);
     return state;
 }
@@ -118,7 +144,27 @@ export function getCombatant(state, id) {
 }
 
 export function isActive(c) {
-    return c && !c.out && !c.fled;
+    return Boolean(c) && !c.out && !c.fled && !c.waiting;
+}
+
+/** Members of a swarm still standing (1 for anyone else). */
+export function swarmSize(c) {
+    if (!c?.swarm) return 1;
+    return Math.max(0, Math.ceil(c.hp / c.swarm.memberHp));
+}
+
+/** Extra damage dice a swarm gets for its size right now. */
+export function swarmBonusDice(c) {
+    return c?.swarm ? Math.floor((swarmSize(c) - 1) * SWARM.dicePerMember) : 0;
+}
+
+/** Brings the next waiting combatant on a side into the fight. */
+function reinforce(state, side, announce = true) {
+    const next = state.combatants.find(c => c.side === side && c.waiting && !c.out && !c.fled);
+    if (!next) return null;
+    next.waiting = false;
+    if (announce) log(state, next.id, 'arrives', `${next.name} joins the fight.`);
+    return next;
 }
 
 function attributeIdFor(c, stat, roles) {
@@ -283,6 +329,7 @@ function knockOut(state, c) {
     log(state, c.id, 'out', `${c.name} is out of the fight.`);
     state.pending = state.pending.filter(id => id !== c.id);
     state.deferred = state.deferred.filter(d => d.actorId !== c.id);
+    if (!state.over) reinforce(state, c.side);
     checkEnd(state);
     return true;
 }
@@ -650,11 +697,12 @@ function applyEffects(state, actor, target, ability, crit, rng, effects = abilit
 function dealDamage(state, actor, target, ability, e, crit, first, rng) {
     const eff = effective(state, actor);
     let diceCount = e.dice + scalingDice(eff, e);
-    if (first) diceCount = Math.max(0, diceCount + eff.damageDice);
+    if (first) diceCount = Math.max(0, diceCount + eff.damageDice + swarmBonusDice(actor));
     const dice = crit ? new Array(diceCount).fill(6) : rollDice(diceCount, 6, rng);
     const raw = dice.reduce((a, b) => a + b, 0) + e.flat;
     const mult = resistanceMultiplier(target, e.damageType);
-    const afterResist = Math.floor(raw * mult);
+    const area = target.swarm && ['all-enemies', 'everyone'].includes(ability.target) ? SWARM.areaMultiplier : 1;
+    const afterResist = Math.floor(raw * mult * area);
     const tEff = effective(state, target);
     let defence = isPhysical(e.damageType) ? tEff.pd : tEff.ed;
     if (hasModifier(ability, 'armorPiercing')) defence = Math.floor(defence / 2);
@@ -662,6 +710,7 @@ function dealDamage(state, actor, target, ability, e, crit, first, rng) {
 
     const parts = [`${raw}${dice.length ? ` [${dice.join('+')}${e.flat ? `+${e.flat}` : ''}]` : ''} ${e.damageType}`];
     if (mult !== 1) parts.push(`×${mult} (${target.block.resistances[e.damageType]})`);
+    if (area !== 1) parts.push(`×${area} (area vs swarm)`);
     if (defence) parts.push(`− ${defence} ${isPhysical(e.damageType) ? 'PD' : 'ED'}`);
 
     let absorbed = 0;
@@ -673,11 +722,17 @@ function dealDamage(state, actor, target, ability, e, crit, first, rng) {
         absorbed += take;
         if (st.amount <= 0) removeStatus(state, target, st, 'breaks');
     }
+    const membersBefore = swarmSize(target);
     target.hp = Math.max(0, target.hp - damage);
     if (damage > 0 || absorbed > 0) target.lastAttackerId = actor.id;
     log(state, target.id, 'damage',
         `  ${parts.join(' ')} = ${damage + absorbed} damage${absorbed ? ` (${absorbed} absorbed)` : ''} → ${target.name} ${target.hp}/${target.maxHp} HP.`,
         { amount: damage, absorbed, damageType: e.damageType, crit });
+    const membersAfter = swarmSize(target);
+    if (target.swarm && membersAfter < membersBefore && membersAfter > 0) {
+        const fell = membersBefore - membersAfter;
+        log(state, target.id, 'swarm', `  ${fell} of the ${target.name} fall${fell === 1 ? 's' : ''}; ${membersAfter} left.`);
+    }
     knockOut(state, target);
     return damage + absorbed;
 }

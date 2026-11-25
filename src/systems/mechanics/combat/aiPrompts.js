@@ -19,6 +19,7 @@ function list(items) {
 
 function hpWord(c) {
     if (c.out) return 'down';
+    if (c.waiting) return 'not in the fight yet: waiting to join';
     if (c.fled) return 'fled';
     const f = c.hp / Math.max(1, c.maxHp);
     if (f > 0.75) return 'healthy';
@@ -34,7 +35,8 @@ export function describeCombatants(combatants) {
         const who = c.isPlayer ? 'the user\'s character' : side;
         const statuses = c.statuses?.length ? `; ${c.statuses.map(s => s.name).join(', ')}` : '';
         const desc = c.block?.description ? ` ${c.block.description}` : '';
-        return `- ${c.name} (${who}, ${hpWord(c)}${statuses}).${desc}`;
+        const swarm = c.swarm && !c.out ? `, a swarm of ${Math.max(1, Math.ceil(c.hp / c.swarm.memberHp))} left of ${c.swarm.count}` : '';
+        return `- ${c.name} (${who}${swarm}, ${hpWord(c)}${statuses}).${desc}`;
     }));
 }
 

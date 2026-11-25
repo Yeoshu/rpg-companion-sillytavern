@@ -105,7 +105,9 @@ export const defaultSettings = {
         roles: { str: 'str', dex: 'dex', con: 'con' },
         glimmerEnabled: true,
         glimmerChance: 5,
-        glimmerMaxPerFight: 1
+        glimmerMaxPerFight: 1,
+        balanceEncounters: true,
+        targetWinChance: 65
     },
     resolvedQuests: [], // Per-chat quests already completed/removed/answered (lowercase titles)
     askAboutDroppedQuests: true, // Ask whether quests the tracker AI removes were completed

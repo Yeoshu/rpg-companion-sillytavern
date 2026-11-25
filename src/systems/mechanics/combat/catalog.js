@@ -119,6 +119,10 @@ export const DEFAULT_COMBAT = Object.freeze({
     glimmerChance: 5,
     /** At most this many glimmers per fight. */
     glimmerMaxPerFight: 1,
+    /** Trim encounters that are too much (swarms, reserves); see balance.js. */
+    balanceEncounters: true,
+    /** The lowest acceptable chance (%) to win a fight, as estimated by simulation. */
+    targetWinChance: 65,
     /** Which attribute plays each role in the derived values. */
     roles: Object.freeze({ str: 'str', dex: 'dex', con: 'con' })
 });
@@ -137,6 +141,8 @@ export function normalizeCombatSettings(settings = {}) {
         glimmerEnabled: settings.glimmerEnabled === undefined ? d.glimmerEnabled : Boolean(settings.glimmerEnabled),
         glimmerChance: clamp(settings.glimmerChance, 0, 100, d.glimmerChance),
         glimmerMaxPerFight: Math.round(clamp(settings.glimmerMaxPerFight, 0, 20, d.glimmerMaxPerFight)),
+        balanceEncounters: settings.balanceEncounters === undefined ? d.balanceEncounters : Boolean(settings.balanceEncounters),
+        targetWinChance: clamp(settings.targetWinChance, 0, 99, d.targetWinChance),
         tiers: Object.fromEntries(Object.entries(TIERS).map(([id, def]) => [id, {
             label: def.label,
             budget: clamp(settings.tiers?.[id]?.budget, 0.05, 10, def.budget),
@@ -384,6 +390,9 @@ export function normalizeStatBlock(raw) {
         sprite: text(raw.sprite, 16),
         strike: normalizeStrike(raw.strike)
     };
+    const size = String(raw.size ?? '').toLowerCase().trim();
+    if (['tiny', 'diminutive', 'fine'].includes(size)) block.size = 'tiny';
+    else if (['large', 'huge', 'gargantuan', 'colossal'].includes(size)) block.size = 'large';
     if (raw.hp !== undefined && raw.hp !== null) block.hp = int(raw.hp, 0, 100000, 0);
     if (raw.end !== undefined && raw.end !== null) block.end = int(raw.end, 0, 100000, 0);
     return block;

@@ -568,6 +568,64 @@ tested).
   normally, and deleting it keeps the points.
 - Glimmers are logged, so narration and the summary describe them.
 
+## Encounter difficulty: swarms and reserves
+
+Per-enemy budgets don't stop the AI from sending six of something, and six
+attacks a round kill a level 1 character however weak each one is (six
+minion rats at a third of the minion budget still won 99% of simulated
+fights). So the encounter as a whole is checked too.
+
+**The estimate** (`mechanics/combat/balance.js`). Before the preview, the
+fight is played out locally 120 times with everyone, the player included,
+on the local tactics, the party at full HP and END (the budget is about the
+encounter, not your current wounds). It uses a seeded RNG, so the same
+encounter always gets the same number. The preview shows it: "Estimated
+chance to win: 65%". Real play usually does better than the automatic
+tactics.
+
+**The target** (Settings → Character Sheet → *Keep encounters winnable*,
+*Target chance to win*, default 65%). When the estimate is below it, in
+this order, re-estimating after each step:
+
+1. **Swarms.** Tiny creatures (`size: "tiny"`: cat-sized or smaller, such as
+   rats, bats, insects, crows) in groups of three or more of the same kind
+   fight as one swarm. Goblin-sized and bigger never swarm. The AI can also
+   ask for one with `"count": N` on a tiny creature. Swarms are formed even
+   when the encounter is already within the target.
+2. **Reserves.** The strongest enemy always starts. Others are held back,
+   weakest first, until the estimate reaches the target. A held-back enemy
+   joins the fight whenever someone on its side falls, so the number of
+   enemies acting at once stays the same.
+3. **Shrinking swarms,** never below three.
+4. **Leaving out reserves,** last first: they hang back, are elsewhere or
+   flee at once (the narration is told).
+
+A single enemy is never weakened here; its tier budget already caps it. A
+lone boss stays a party-sized threat. With balancing off, only the AI's own
+`count`, `size` and `reserve` marks are used.
+
+**Swarm rules** (`SWARM` in `engine.js`). One combatant that acts once per
+phase, on the member's stat block, with all the members' HP pooled. Members
+are lost as HP drops (each member's worth of HP is one member). The first
+damage effect of each attack gets +½ die per member alive beyond the first
+(six rats: +2 dice). Area attacks (all enemies, everyone) do ×1.5 damage to
+a swarm. EXP: each member is worth half a normal enemy of its tier.
+
+**The prompt.** The AI is told what a fair fight is (about one elite, one
+or two standard enemies, or a leader with two or three minions), to use
+`"count"` for several of the same kind, `"size"`, and `"reserve": true`
+for extras the story calls for. `count` on anything bigger than tiny is
+just that many copies.
+
+**Numbers at level 1** (example 50 CP character, automatic tactics):
+
+| Encounter | Before | After |
+|---|---|---|
+| 6 rats (minion, tiny) | 0% | one swarm of 6, ~65% |
+| 6 goblins (minion) | 0% | 1 fighting, 3 waiting, 2 left out, ~70% |
+| 2 standard bandits | ~3% | 1 fighting, 1 left out, ~80% |
+| goblin chief (elite) + 4 goblins | 0% | the chief alone, ~40–50% |
+
 ## Decisions
 
 1. **Elements:** both sets: fire, water, earth, air, ice, lightning, plus

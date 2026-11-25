@@ -51,6 +51,9 @@ export function buildRoster(raw, { playerName = '', pointsPerLevel = 5, settings
             block.stored = true;
             if (stored.template) {
                 // A template stands for any number of generic combatants.
+                const swarm = Math.round(Number(entry?.swarm ?? entry?.count) || 0);
+                if (swarm >= 2) block.swarm = Math.min(20, swarm);
+                if (entry?.reserve === true) block.reserve = true;
                 block.name = String(entry?.name || block.name).trim() || block.name;
                 block.fromTemplate = storeKey(stored.name);
                 delete block.hp;
@@ -62,14 +65,29 @@ export function buildRoster(raw, { playerName = '', pointsPerLevel = 5, settings
         }
         const block = normalizeStatBlock(entry);
         if (block) {
+            // How many of them, and whether they wait to join (see balance.js).
+            const swarm = Math.round(Number(entry.swarm ?? entry.count) || 0);
+            if (swarm >= 2) block.swarm = Math.min(20, swarm);
+            if (entry.reserve === true) block.reserve = true;
             // Starting HP/END only come from stored characters, never from the AI.
             delete block.hp;
             delete block.end;
         }
         return block;
     };
+    // "count" on anything bigger than tiny means that many separate combatants.
+    const expand = block => {
+        if (!block?.swarm || block.size === 'tiny' || block.storedKey) {
+            if (block && block.size !== 'tiny') delete block.swarm;
+            return [block];
+        }
+        const n = block.swarm;
+        delete block.swarm;
+        return Array.from({ length: n }, (_, i) => (i ? JSON.parse(JSON.stringify(block)) : block));
+    };
     const take = list => (Array.isArray(list) ? list : [])
         .map(fromEntry)
+        .flatMap(expand)
         .filter(b => b && b.name.toLowerCase() !== player);
     const seen = new Set();
     const once = b => {
