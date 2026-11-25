@@ -529,6 +529,18 @@ Each step is usable and testable before the next one.
   attack's.
 - **Unlimited items** (a checkbox in the item builder): never used up and not
   counted against the inventory, e.g. a wand or a holy symbol.
+- **Narration per side's turn**: one narration call when the acting side
+  changes (your side's run of phases, then theirs), instead of one per phase.
+- **Planning several phases**: when you act more than once before the other
+  side does (higher SPD), you queue an action for each of those phases
+  (Undo / Go), they play out, and the whole run is narrated together. A typed
+  action ends the plan: the queued actions resolve and are narrated, then the
+  typed action is worked out as before, and you plan the rest afterwards.
+- **Dialogue** (Say, next to Act) is a free action: it's logged at once,
+  doesn't use the phase, and goes into the narration and summary.
+- **Choosing the opponent**: the Enter Encounter dialog asks who or what you
+  fight. Left empty, the AI decides from the scene; filled in, the set-up is
+  built around it (and it's matched against stored characters too).
 - **Flavour reaches the AI**: ability, item and basic-attack descriptions go
   into the set-up sheet, free-action and tactics prompts, and narration and
   the summary get the descriptions of the abilities that were used.

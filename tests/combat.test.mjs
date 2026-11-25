@@ -522,3 +522,15 @@ test('unlimited items are never used up', () => {
     assert.equal(state.log.filter(l => l.text.includes('uses Wand')).length, 2);
     assert.equal(getCombatant(state, 'c1').items[0].quantity, 0);
 });
+
+import { say } from '../src/systems/mechanics/combat/engine.js';
+
+test('dialogue is a free action: logged, phase not used', () => {
+    const state = duel({}, {});
+    advance(state);
+    say(state, 'c1', '"Stand down, goblin!"');
+    assert.equal(state.current, 'c1', 'still Lem\'s phase');
+    assert.equal(state.log.at(-1).text, 'Lem says: "Stand down, goblin!"');
+    assert.equal(state.log.at(-1).kind, 'speech');
+    assert.equal(say(state, 'c1', '   '), null);
+});

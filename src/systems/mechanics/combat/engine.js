@@ -305,6 +305,17 @@ function finish(state, result) {
     return true;
 }
 
+/**
+ * Dialogue is a free action: it goes into the log (for narration and the
+ * summary) without using the speaker's phase.
+ */
+export function say(state, actorId, text) {
+    const c = getCombatant(state, actorId);
+    const line = String(text ?? '').trim().replace(/^["“]|["”]$/g, '').slice(0, 500);
+    if (!c || !line || state.over) return null;
+    return log(state, c.id, 'speech', `${c.name} says: "${line}"`);
+}
+
 /** Ends the fight early (Conclude Encounter). */
 export function conclude(state, result = 'interrupted') {
     if (!state.over) finish(state, result);

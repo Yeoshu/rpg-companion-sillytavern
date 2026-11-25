@@ -43,7 +43,7 @@ import { deriveValues, statBlockPoints, tierBudget } from '../mechanics/combat/c
 import { describeAbility, describeEffect, describeStatBlock } from '../mechanics/combat/describe.js';
 import { buildRoster } from '../mechanics/combat/roster.js';
 import {
-    act, advance, availableActions, conclude, createCombat, describeStatus, effective, getCombatant, hitChance,
+    act, advance, availableActions, conclude, createCombat, say, describeStatus, effective, getCombatant, hitChance,
     isActive, upcomingPhases, validTargets
 } from '../mechanics/combat/engine.js';
 import { chooseAction } from '../mechanics/combat/tactics.js';
@@ -86,6 +86,9 @@ export class EncounterModal {
         this.controlled = new Set();
         this.lastRequest = null;
         this.known = [];
+        this.opponent = '';
+        this.queue = [];
+        this.lastSide = null;
         this.narrations = [];
         this.narratedUpTo = 0;
         this.intents = new Map();
@@ -114,7 +117,7 @@ export class EncounterModal {
         const stored = allStoredBlocks();
         if (!stored.length) return [];
         const depth = extensionSettings.encounterSettings?.historyDepth || 8;
-        const text = (chat || []).slice(-depth).map(m => m?.mes || '').join('\n');
+        const text = [...(chat || []).slice(-depth).map(m => m?.mes || ''), this.opponent || ''].join('\n');
         let present = [];
         try {
             present = parsePresentCharacters(getPresentCharactersTrackerData()).map(c => c?.name).filter(Boolean);
@@ -152,6 +155,8 @@ export class EncounterModal {
         this.narratedUpTo = 0;
         this.intents = new Map();
         this.thinking = '';
+        this.queue = [];
+        this.lastSide = null;
         resetEncounter();
         if (!this.modal) this.createModal();
         this.modal.classList.add('is-open');
@@ -180,7 +185,8 @@ export class EncounterModal {
                 level,
                 budgets,
                 perLevel: Math.max(1, Math.round(progression.pointsPerLevel * settings.tiers.standard.budget)),
-                known: this.known
+                known: this.known,
+                opponent: this.opponent || ''
             });
             const response = await safeGenerateRaw({ prompt, quietToLoud: false });
             if (this.closed) return;
@@ -336,23 +342,54 @@ export class EncounterModal {
         ];
         this.state = createCombat(participants, { settings });
         this.selecting = null;
+        this.queue = [];
+        this.lastSide = null;
         this.renderBattle();
         this.run();
     }
 
-    /** Runs phases until it's a player-controlled combatant's turn or the fight ends. */
+    /**
+     * Runs phases until a player-controlled combatant has to choose (and has
+     * nothing queued) or the fight ends. Queued actions are played out as
+     * their phases come up. Narration happens when the acting side changes
+     * (one narration per side's turn), and before a queued typed action.
+     */
     async run() {
         if (this.running || !this.state) return;
         this.running = true;
+        let typed = null;
         try {
             while (!this.state.over && !this.closed) {
                 const id = advance(this.state);
                 if (!id) break;
                 const c = getCombatant(this.state, id);
+                if (this.lastSide && c.side !== this.lastSide && this.narrationMode() === 'phase') await this.narrate();
+                if (this.closed) break;
+                this.lastSide = c.side;
                 if (c.controlled === 'player') {
-                    if (this.narrationMode() === 'phase') await this.narrate();
+                    const next = this.queue[0];
+                    if (!next || next.actorId !== c.id) {
+                        this.queue = [];
+                        this.running = false;
+                        this.renderBattle();
+                        return;
+                    }
+                    this.queue.shift();
+                    if (next.typed) {
+                        // Resolve what came before, narrate it, then work out the typed action.
+                        this.queue = [];
+                        if (this.narrationMode() === 'phase') await this.narrate();
+                        typed = next.typed;
+                        break;
+                    }
                     this.renderBattle();
-                    return;
+                    const delay = this.aiDelay ?? getCombatSettings().aiDelay;
+                    if (delay) await sleep(delay);
+                    if (this.closed || this.state.over) break;
+                    if (next.intent) this.intents.set(this.state.log.length, `(${c.name} meant to: "${next.intent}")`);
+                    act(this.state, next.action);
+                    this.renderBattle();
+                    continue;
                 }
                 this.renderBattle();
                 let action = null;
@@ -369,7 +406,99 @@ export class EncounterModal {
         } finally {
             this.running = false;
         }
+        if (typed && !this.closed && !this.state.over) {
+            this.renderBattle();
+            await this.freeAction(typed);
+            return;
+        }
         if (this.state?.over && !this.closed) await this.endCombat(this.state.result);
+    }
+
+    /**
+     * The phases the player can plan right now: from the current phase, every
+     * phase of a combatant they control until the other side acts.
+     * @returns {{turn: number, segment: number, id: string}[]}
+     */
+    planSlots() {
+        const state = this.state;
+        const current = getCombatant(state, state.current);
+        if (!current || current.controlled !== 'player') return [];
+        const phases = [{ turn: state.turn, segment: state.segment, id: state.current }, ...upcomingPhases(state, 24)];
+        const slots = [];
+        for (const p of phases) {
+            const c = getCombatant(state, p.id);
+            if (c.side !== current.side) break;
+            if (c.controlled === 'player') slots.push(p);
+            if (slots.length >= 8) break;
+        }
+        return slots;
+    }
+
+    /** The combatant whose action is being chosen (the next unplanned slot). */
+    planActor() {
+        const slots = this.planSlots();
+        const slot = slots[Math.min(this.queue.length, Math.max(0, slots.length - 1))];
+        return getCombatant(this.state, slot ? slot.id : this.state.current);
+    }
+
+    /**
+     * An action was chosen: queue it when several phases are being planned,
+     * otherwise act now. A full queue starts playing out.
+     */
+    commit(action, intent = '', { immediate = false } = {}) {
+        if (this.running || this.thinking) return;
+        const slots = this.planSlots();
+        this.selecting = null;
+        if (immediate || slots.length <= 1) {
+            this.playerAction(action, intent);
+            return;
+        }
+        const actor = this.planActor();
+        this.queue.push({ actorId: actor.id, action, intent, label: this.describeAction(actor, action) });
+        if (this.queue.length >= slots.length) this.executeQueue();
+        else this.renderBattle();
+    }
+
+    executeQueue() {
+        if (!this.queue.length || this.running) return;
+        this.selecting = null;
+        this.run();
+    }
+
+    /** availableActions() for the planning actor, minus uses already queued. */
+    planOptions(actor) {
+        const { abilities, items } = availableActions(this.state, actor.id);
+        const queued = id => this.queue.filter(q => q.actorId === actor.id && (q.action.abilityId === id || q.action.itemId === id)).length;
+        const endQueued = this.queue.filter(q => q.actorId === actor.id).reduce((sum, q) => {
+            const o = abilities.find(a => a.ability.id === q.action.abilityId);
+            return sum + (o?.end || 0);
+        }, 0);
+        return {
+            abilities: abilities.map(o => {
+                const left = o.charges === undefined ? undefined : o.charges - queued(o.ability.id);
+                return { ...o, charges: left, usable: o.usable && (left === undefined || left > 0), endLeft: actor.end - endQueued };
+            }),
+            items: items.map(o => {
+                const left = o.unlimited ? o.quantity : o.quantity - queued(o.ability.id);
+                return { ...o, quantity: left, usable: o.unlimited || left > 0 };
+            }),
+            endLeft: actor.end - endQueued
+        };
+    }
+
+    /** "Fire Bolt → Wolf 1" for the queue list. */
+    describeAction(actor, action) {
+        const name = id => getCombatant(this.state, id)?.name;
+        if (action.type === 'ability' || action.type === 'strike' || action.type === 'item') {
+            const { abilities, items } = availableActions(this.state, actor.id);
+            const ability = action.type === 'item'
+                ? items.find(o => o.ability.id === action.itemId)?.ability
+                : abilities.find(o => o.ability.id === (action.abilityId || 'strike'))?.ability;
+            const targets = [action.targetId, ...Object.values(action.effectTargets || {})].map(name).filter(Boolean);
+            const shown = ability && SINGLE_TARGETS.includes(ability.target) || Object.keys(action.effectTargets || {}).length;
+            return `${ability?.name || '?'}${shown && targets.length ? ` → ${[...new Set(targets)].join(', ')}` : ''}`;
+        }
+        return { dodge: t('encounter.ui.dodge', 'Dodge'), recover: t('encounter.ui.recover', 'Recover'), flee: t('encounter.ui.flee', 'Flee'), pass: t('encounter.ui.wait', 'Wait') }[action.type] || action.type;
     }
 
     narrationMode() {
@@ -475,6 +604,32 @@ export class EncounterModal {
         this.run();
     }
 
+    /** Dialogue: logged straight away, costs no phase (narrated with the rest of the turn). */
+    speak(text) {
+        if (this.running || this.thinking) return;
+        const actor = this.planActor();
+        if (!actor || !say(this.state, actor.id, text)) return;
+        this.freeDraft = '';
+        this.renderBattle();
+    }
+
+    /**
+     * Typed text: acted on now when nothing is queued; otherwise it ends the
+     * plan (the queued actions play out and are narrated, then it's worked out).
+     */
+    submitFreeText(text) {
+        text = String(text || '').trim();
+        if (!text || this.running || this.thinking) return;
+        if (!this.queue.length) {
+            this.freeAction(text);
+            return;
+        }
+        const actor = this.planActor();
+        this.freeDraft = '';
+        this.queue.push({ actorId: actor.id, typed: text, label: `"${text}"` });
+        this.executeQueue();
+    }
+
     /**
      * A typed action: the AI maps it to an ability, a basic action, or an
      * improvised check (confirmed by the player, rolled locally).
@@ -519,7 +674,7 @@ export class EncounterModal {
             const type = parsed.kind === 'item' ? 'item' : 'ability';
             const key = parsed.kind === 'item' ? 'itemId' : 'abilityId';
             const ability = parsed.ability.id === 'strike' ? abilities.find(a => a.ability.id === 'strike').ability : parsed.ability;
-            this.startSelection({ type, key, ability, intent: text, mainTarget: parsed.targetId });
+            this.startSelection({ type, key, ability, intent: text, mainTarget: parsed.targetId, immediate: true });
             return;
         }
         await this.confirmImprovised(current, parsed, text);
@@ -571,9 +726,8 @@ export class EncounterModal {
 
     /** Ability or item clicked: act now, or pick a target first. */
     chooseAbility(kind, id) {
-        const current = getCombatant(this.state, this.state.current);
-        const { abilities, items } = availableActions(this.state, current.id);
-        const option = (kind === 'item' ? items : abilities).find(o => o.ability.id === id);
+        const current = this.planActor();
+        const option = this.planOptions(current)[kind === 'item' ? 'items' : 'abilities'].find(o => o.ability.id === id);
         if (!option || !option.usable) return;
         const ability = option.ability;
         const type = kind === 'item' ? 'item' : 'ability';
@@ -587,8 +741,8 @@ export class EncounterModal {
      * targets"), then picks them one by one, or acts straight away.
      * @param {object} o - { type, key, ability, intent?, mainTarget? (already chosen) }
      */
-    startSelection({ type, key, ability, intent = '', mainTarget = null }) {
-        const current = getCombatant(this.state, this.state.current);
+    startSelection({ type, key, ability, intent = '', mainTarget = null, immediate = false }) {
+        const current = immediate ? getCombatant(this.state, this.state.current) : this.planActor();
         const valid = target => validTargets(this.state, current.id, { target });
         const needsPick = target => target === 'one-enemy' || (target === 'one-ally' && valid(target).length > 1);
         const separate = (ability.advantages || []).some(m => m.id === 'separateTargets');
@@ -604,10 +758,10 @@ export class EncounterModal {
         }
         const action = { type, [key]: ability.id, targetId: mainTarget || valid(ability.target)[0], effectTargets: {} };
         if (!picks.length) {
-            this.playerAction(action, intent);
+            this.commit(action, intent, { immediate });
             return;
         }
-        this.selecting = { type, key, id: ability.id, ability, picks, step: 0, action, intent, targets: valid(picks[0].target) };
+        this.selecting = { type, key, id: ability.id, ability, picks, step: 0, action, intent, immediate, actorId: current.id, targets: valid(picks[0].target) };
         this.renderBattle();
     }
 
@@ -620,10 +774,10 @@ export class EncounterModal {
         else s.action.effectTargets[pick.index] = id;
         s.step += 1;
         if (s.step >= s.picks.length) {
-            this.playerAction(s.action, s.intent || '');
+            this.commit(s.action, s.intent || '', { immediate: s.immediate });
             return;
         }
-        s.targets = validTargets(this.state, this.state.current, { target: s.picks[s.step].target });
+        s.targets = validTargets(this.state, s.actorId, { target: s.picks[s.step].target });
         this.renderBattle();
     }
 
@@ -647,7 +801,7 @@ export class EncounterModal {
                 <div class="rpg-combat-grid">${side('party').map(c => this.renderCard(c)).join('')}</div>
                 ${this.thinking
                     ? `<div class="rpg-combat-waiting"><i class="fa-solid fa-spinner fa-spin"></i> ${esc(this.thinking)}</div>`
-                    : playerTurn ? this.renderActionBar(current) : `<div class="rpg-combat-waiting">${current ? `<i class="fa-solid fa-hourglass-half"></i> ${esc(current.name)}…` : ''}</div>`}
+                    : playerTurn && !this.running ? this.renderActionBar() : `<div class="rpg-combat-waiting">${current ? `<i class="fa-solid fa-hourglass-half"></i> ${esc(current.name)}…` : ''}</div>`}
                 <h3 class="rpg-combat-heading"><i class="fa-solid fa-scroll"></i> ${esc(t('encounter.ui.combatLog', 'Combat Log'))}</h3>
                 <div class="rpg-combat-log">${this.renderLog()}</div>
             </div>`;
@@ -657,12 +811,15 @@ export class EncounterModal {
 
         main.querySelectorAll('[data-combat-ability]').forEach(btn => btn.addEventListener('click', () => this.chooseAbility('ability', btn.dataset.combatAbility)));
         main.querySelectorAll('[data-combat-item]').forEach(btn => btn.addEventListener('click', () => this.chooseAbility('item', btn.dataset.combatItem)));
-        main.querySelectorAll('[data-combat-basic]').forEach(btn => btn.addEventListener('click', () => this.playerAction({ type: btn.dataset.combatBasic })));
+        main.querySelectorAll('[data-combat-basic]').forEach(btn => btn.addEventListener('click', () => this.commit({ type: btn.dataset.combatBasic })));
+        main.querySelector('[data-combat-undo]')?.addEventListener('click', () => { this.queue.pop(); this.selecting = null; this.renderBattle(); });
+        main.querySelector('[data-combat-go]')?.addEventListener('click', () => this.executeQueue());
         main.querySelector('[data-combat-cancel]')?.addEventListener('click', () => { this.selecting = null; this.renderBattle(); });
         const freeForm = main.querySelector('.rpg-combat-free');
+        freeForm?.querySelector('[data-combat-say]')?.addEventListener('click', () => this.speak(freeForm.querySelector('input').value));
         freeForm?.addEventListener('submit', event => {
             event.preventDefault();
-            this.freeAction(freeForm.querySelector('input').value);
+            this.submitFreeText(freeForm.querySelector('input').value);
         });
         main.querySelectorAll('.rpg-combat-card.is-target').forEach(cardEl => cardEl.addEventListener('click', () => this.pickTarget(cardEl.dataset.id)));
     }
@@ -688,7 +845,7 @@ export class EncounterModal {
         const end = Math.round((c.end / Math.max(1, c.maxEnd)) * 100);
         const s = this.selecting;
         const target = s && s.targets.includes(c.id);
-        const chance = target ? Math.round(hitChance(state, state.current, s.ability, c.id) * 100) : null;
+        const chance = target ? Math.round(hitChance(state, s.actorId || state.current, s.ability, c.id) * 100) : null;
         const classes = [
             'rpg-combat-card',
             `rpg-combat-${c.side}`,
@@ -716,14 +873,28 @@ export class EncounterModal {
             </div>`;
     }
 
-    renderActionBar(current) {
+    renderActionBar() {
         const state = this.state;
         const s = this.selecting;
+        const slots = this.planSlots();
+        const planning = slots.length > 1;
+        const actor = this.planActor();
+        const slot = slots[Math.min(this.queue.length, slots.length - 1)] || { turn: state.turn, segment: state.segment };
+        const options = this.planOptions(actor);
         const header = `
             <div class="rpg-combat-actions-head">
-                <strong>${esc(current.name)}</strong>
-                <span class="rpg-combat-dim">${esc(t('encounter.ui.turnSegment', 'Turn {turn}, segment {segment}').replace('{turn}', state.turn).replace('{segment}', state.segment))} · END ${current.end}/${current.maxEnd}</span>
-            </div>`;
+                <strong>${esc(actor.name)}</strong>
+                <span class="rpg-combat-dim">${esc(t('encounter.ui.turnSegment', 'Turn {turn}, segment {segment}').replace('{turn}', slot.turn).replace('{segment}', slot.segment))} · END ${options.endLeft}/${actor.maxEnd}${planning ? ` · ${esc(t('encounter.ui.planStep', 'action {n} of {total}').replace('{n}', this.queue.length + 1).replace('{total}', slots.length))}` : ''}</span>
+            </div>
+            ${planning ? `
+            <div class="rpg-combat-queue">
+                <span class="rpg-combat-dim">${esc(t('encounter.ui.planHint', 'You act {n} times before the other side does: plan them, then they play out and get narrated together.').replace('{n}', slots.length))}</span>
+                ${this.queue.length ? `<ol>${this.queue.map(q => `<li>${esc(getCombatant(state, q.actorId).name)}: ${esc(q.label)}</li>`).join('')}</ol>
+                <div class="rpg-combat-queue-actions">
+                    <button type="button" class="rpg-btn rpg-btn-secondary" data-combat-undo><i class="fa-solid fa-rotate-left"></i> ${esc(t('encounter.ui.undo', 'Undo'))}</button>
+                    <button type="button" class="rpg-btn rpg-btn-primary" data-combat-go title="${esc(t('encounter.ui.goHint', 'Play out the planned actions now and choose the rest afterwards'))}"><i class="fa-solid fa-play"></i> ${esc(t('encounter.ui.goNow', 'Go'))}</button>
+                </div>` : ''}
+            </div>` : ''}`;
         if (s) {
             return `
                 <div class="rpg-combat-actions">
@@ -734,12 +905,13 @@ export class EncounterModal {
                     </div>
                 </div>`;
         }
-        const { abilities, items } = availableActions(state, current.id);
+        const { abilities, items } = options;
         const abilityButton = o => {
             const notes = [];
             if (o.end) notes.push(`${o.end} END`);
             if (o.charges !== undefined) notes.push(`${o.charges} ${esc(t('encounter.ui.left', 'left'))}`);
-            return `<button type="button" class="rpg-combat-action${o.end > current.end ? ' is-strain' : ''}" data-combat-ability="${esc(o.ability.id)}" ${o.usable ? '' : 'disabled'} title="${esc(describeAbility(o.ability))}${o.end > current.end ? esc(` (${t('encounter.ui.strainHint', 'not enough END: the rest is paid in HP')})`) : ''}">
+            const strain = o.end > options.endLeft;
+            return `<button type="button" class="rpg-combat-action${strain ? ' is-strain' : ''}" data-combat-ability="${esc(o.ability.id)}" ${o.usable ? '' : 'disabled'} title="${esc(describeAbility(o.ability))}${strain ? esc(` (${t('encounter.ui.strainHint', 'not enough END: the rest is paid in HP')})`) : ''}">
                 <span>${esc(o.ability.name)}</span>${notes.length ? `<small>${notes.join(' · ')}</small>` : ''}</button>`;
         };
         const itemButton = o => `
@@ -759,7 +931,8 @@ export class EncounterModal {
                     ${basic('pass', 'fa-hourglass', t('encounter.ui.wait', 'Wait'), t('encounter.ui.waitHint', 'Do nothing this phase'))}
                 </div>
                 <form class="rpg-combat-free">
-                    <input type="text" class="text_pole" maxlength="300" value="${esc(this.freeDraft || '')}" placeholder="${esc(t('encounter.ui.freePlaceholder', 'Or describe what you do...'))}">
+                    <input type="text" class="text_pole" maxlength="300" value="${esc(this.freeDraft || '')}" placeholder="${esc(planning && this.queue.length ? t('encounter.ui.freePlaceholderQueued', 'Or describe what you do (the planned actions play out first)...') : t('encounter.ui.freePlaceholder', 'Or describe what you do...'))}">
+                    <button type="button" class="rpg-btn rpg-btn-secondary" data-combat-say title="${esc(t('encounter.ui.sayHint', 'Say it out loud: a free action that does not use your phase'))}"><i class="fa-solid fa-comment"></i> ${esc(t('encounter.ui.say', 'Say'))}</button>
                     <button type="submit" class="rpg-btn rpg-btn-primary" title="${esc(t('encounter.ui.freeHint', 'The AI turns it into one of your abilities or a check you roll for'))}"><i class="fa-solid fa-wand-magic-sparkles"></i> ${esc(t('encounter.ui.freeTry', 'Act'))}</button>
                 </form>
             </div>`;
@@ -1096,7 +1269,14 @@ export class EncounterModal {
                             <h2><i class="fa-solid fa-book-open"></i> ${i18n.getTranslation('encounter.configModal.title') || 'Configure Combat Narrative'}</h2>
                         </div>
                         <div class="rpg-encounter-content" style="padding: 24px;">
-                            <div class="rpg-narrative-config-section">
+                            <div class="rpg-narrative-config-section rpg-encounter-opponent">
+                                <label for="config-opponent" class="label_text" style="margin-bottom: 8px; display: block; font-weight: 600;">
+                                    <i class="fa-solid fa-crosshairs"></i> ${esc(t('encounter.configModal.opponent', 'Who or what do you fight?'))}
+                                </label>
+                                <textarea id="config-opponent" class="text_pole" rows="2" maxlength="500" placeholder="${esc(t('encounter.configModal.opponentPlaceholder', 'e.g. the bandit leader and his two archers, a dragon, Aqua (sparring). Leave empty to let the AI decide from the scene.'))}"></textarea>
+                            </div>
+
+                            <div class="rpg-narrative-config-section" style="margin-top: 24px;">
                                 <label class="label_text" style="margin-bottom: 16px; display: block; font-weight: 600;">
                                     <i class="fa-solid fa-swords"></i> ${i18n.getTranslation('encounter.configModal.combatNarrativeStyle') || 'Combat Narrative Style'}
                                 </label>
@@ -1192,7 +1372,10 @@ export class EncounterModal {
             const configModal = document.getElementById('rpg-narrative-config-modal');
 
             // Show modal
-            setTimeout(() => configModal.classList.add('is-open'), 10);
+            setTimeout(() => {
+                configModal.classList.add('is-open');
+                configModal.querySelector('#config-opponent')?.focus();
+            }, 10);
 
             // Handle proceed
             configModal.querySelector('#config-proceed').addEventListener('click', () => {
@@ -1212,6 +1395,7 @@ export class EncounterModal {
                 };
 
                 const remember = configModal.querySelector('#config-remember').checked;
+                this.opponent = configModal.querySelector('#config-opponent').value.trim();
 
                 // Save to settings
                 if (!extensionSettings.encounterSettings) {

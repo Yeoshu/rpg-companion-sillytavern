@@ -81,7 +81,11 @@ async function getCharactersInfo() {
 export function buildStatBlockInstructions(userName, setup = {}) {
     const level = Math.max(1, Math.floor(setup.level) || 1);
     const b = setup.budgets || {};
-    let text = `Based on everything above, set up the fight. Work out who fights alongside ${userName} (if anyone) and who the enemies are, and write a stat block for each of them. ${userName} already has a character sheet; do NOT include ${userName}.\n\n`;
+    let text = '';
+    if (setup.opponent) {
+        text += `${userName} has chosen what this fight is: "${setup.opponent}". Build the fight around exactly that, even if the scene above doesn't lead to it: those are the enemies (and allies, if it names any). Use the scene only for flavour, the setting and any allies already present.\n\n`;
+    }
+    text += `Based on everything above, set up the fight. Work out who fights alongside ${userName} (if anyone) and who the enemies are, and write a stat block for each of them. ${userName} already has a character sheet; do NOT include ${userName}.\n\n`;
     if (setup.playerSheet) {
         text += `${userName}'s sheet, for scale:\n<sheet>\n${setup.playerSheet}\n</sheet>\n\n`;
     }
@@ -167,6 +171,7 @@ Return ONLY the JSON object, no other text.`;
  * @param {object} [setup.budgets] - { minion, standard, elite, boss } points at the player's level
  * @param {number} [setup.perLevel] - extra points per level of a standard enemy
  * @param {object[]} [setup.known] - stored stat blocks the AI may reuse by name
+ * @param {string} [setup.opponent] - what the player typed as the fight's opponent (optional)
  * @returns {Promise<Array>} Message array for the API
  */
 export async function buildEncounterInitPrompt(setup = {}) {
