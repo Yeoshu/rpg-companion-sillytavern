@@ -346,7 +346,7 @@ export function availableActions(state, id) {
         charges: c.charges[a.id],
         usable: c.charges[a.id] === undefined || c.charges[a.id] > 0
     }));
-    const items = c.items.map(item => ({ ability: item, quantity: item.quantity, usable: item.quantity > 0 }));
+    const items = c.items.map(item => ({ ability: item, quantity: item.quantity, unlimited: Boolean(item.unlimited), usable: item.unlimited || item.quantity > 0 }));
     return { abilities, items };
 }
 
@@ -439,7 +439,7 @@ export function act(state, action, rng = Math.random) {
         else ability = action.abilityId === 'strike' ? strikeAbility(state, actor) : actor.block.abilities.find(a => a.id === action.abilityId);
         if (!ability) {
             log(state, actor.id, 'error', `${actor.name} hesitates (unknown action).`);
-        } else if (type === 'item' && !(ability.quantity > 0) && !action.resolvingDeferred) {
+        } else if (type === 'item' && !ability.unlimited && !(ability.quantity > 0) && !action.resolvingDeferred) {
             log(state, actor.id, 'error', `${actor.name} has no ${ability.name} left.`);
         } else if (actor.charges[ability.id] !== undefined && actor.charges[ability.id] <= 0 && !action.resolvingDeferred) {
             log(state, actor.id, 'error', `${actor.name} has no uses of ${ability.name} left.`);
@@ -487,7 +487,7 @@ function payFor(state, actor, ability) {
         }
     }
     if (actor.charges[ability.id] !== undefined) actor.charges[ability.id] -= 1;
-    if (ability.quantity !== undefined) ability.quantity = Math.max(0, ability.quantity - 1);
+    if (ability.quantity !== undefined && !ability.unlimited) ability.quantity = Math.max(0, ability.quantity - 1);
 }
 
 function useAbility(state, actor, ability, targetId, rng, effectTargets = {}) {

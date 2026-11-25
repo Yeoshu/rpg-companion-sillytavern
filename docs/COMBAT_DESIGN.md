@@ -527,6 +527,8 @@ Each step is usable and testable before the next one.
   Battle Surge: damage to the main target plus a buff with target self.
 - The ability builder compares an ability's average damage with your basic
   attack's.
+- **Unlimited items** (a checkbox in the item builder): never used up and not
+  counted against the inventory, e.g. a wand or a holy symbol.
 - **Flavour reaches the AI**: ability, item and basic-attack descriptions go
   into the set-up sheet, free-action and tactics prompts, and narration and
   the summary get the descriptions of the abilities that were used.

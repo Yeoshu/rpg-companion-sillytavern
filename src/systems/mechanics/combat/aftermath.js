@@ -21,6 +21,7 @@ export function computeAftermath({ player, healthMax = null, energyMax = null, e
     if (healthMax) out.health = Math.max(0, Math.min(healthMax, Math.round((player.hp / Math.max(1, player.maxHp)) * healthMax)));
     if (energyMax) out.energy = Math.max(0, Math.min(energyMax, Math.round((player.end / Math.max(1, player.maxEnd)) * energyMax)));
     for (const item of player.items || []) {
+        if (item.unlimited) continue;
         const original = (player.block.items || []).find(i => i.id === item.id);
         const used = (original?.quantity ?? item.quantity) - item.quantity;
         if (used <= 0) continue;

@@ -139,7 +139,7 @@ export function trackerFraction(statId) {
 export function playerCombatBlock() {
     const block = buildPlayerStatBlock();
     const entries = carriedEntries();
-    block.items = block.items.map(item => ({ ...item, quantity: itemStock(item, entries).quantity }));
+    block.items = block.items.map(item => (item.unlimited ? { ...item } : { ...item, quantity: itemStock(item, entries).quantity }));
     return block;
 }
 
