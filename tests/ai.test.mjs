@@ -107,3 +107,26 @@ test('recurring characters: matching, generic names, roster substitution', () =>
     assert.equal(roster.enemies[0].hp, undefined);
     assert.equal(roster.enemies[2].hp, undefined, 'AI-written HP is ignored');
 });
+
+import { describeAbility, describeStatBlock } from '../src/systems/mechanics/combat/describe.js';
+import { normalizeAbility } from '../src/systems/mechanics/combat/catalog.js';
+import { deriveValues } from '../src/systems/mechanics/combat/costs.js';
+
+test('flavour descriptions reach the prompts', () => {
+    const lem = normalizeStatBlock({ name: 'Lem', strike: { name: 'Fire Fist', damageType: 'fire', description: 'burning knuckles' },
+        abilities: [{ name: 'Fire Bolt', description: 'a lance of white flame', effects: [{ type: 'damage', dice: 5, damageType: 'fire' }] }] });
+    const text = describeStatBlock(lem, deriveValues(lem));
+    assert.ok(text.includes('Basic attack: Fire Fist, 2d6 fire ("burning knuckles")'));
+    assert.ok(text.includes('- Fire Bolt ("a lance of white flame"): 5d6 fire damage'));
+
+    const state = createCombat([{ block: lem, side: 'party', isPlayer: true }, { block: normalizeStatBlock({ name: 'Wolf' }), side: 'enemies' }]);
+    const o = { options: optionsFor(state, 'c1'), combatants: state.combatants, attributes: [{ id: 'dex', name: 'DEX' }], skills: [], maxAp: 15, strikeName: 'Fire Fist' };
+    const prompt = buildFreeActionPrompt({ ...o, userName: 'Lem', text: 'punch it', actor: state.combatants[0] }).map(m => m.content).join('\n');
+    assert.ok(prompt.includes('"a lance of white flame"') && prompt.includes('Fire Fist: their basic attack ("burning knuckles")'));
+    assert.deepEqual(parseFreeAction({ type: 'ability', ability: 'Fire Fist', target: 'Wolf' }, o).ability.id, 'strike');
+    const narration = buildNarrationPrompt({ userName: 'Lem', combatants: state.combatants, lines: ['Lem uses Fire Bolt on Wolf.'], abilityNotes: ["Lem's Fire Bolt: a lance of white flame"] });
+    assert.ok(narration[0].content.includes("- Lem's Fire Bolt: a lance of white flame"));
+
+    const surge = normalizeAbility({ name: 'Surge', advantages: ['separateTargets'], effects: [{ type: 'damage', dice: 3, damageType: 'slash' }, { type: 'heal', dice: 1, target: 'self' }] });
+    assert.equal(describeAbility(surge), '3d6 slash damage, heals 1d6 (→ self) → one enemy (attack roll); separate targets');
+});

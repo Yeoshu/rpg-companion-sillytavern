@@ -8,7 +8,7 @@
 
 import {
     ADVANTAGES, AREA_ADVANTAGE, AREA_TARGETS, BUYABLE, DEFAULT_COMBAT, LIMITATIONS,
-    MODIFIER_COST, RESISTANCES, TIERS
+    MODIFIER_COST, RESISTANCES, SEPARATE_TARGET_ADVANTAGE, TIERS, isPhysical
 } from './catalog.js';
 
 const fifth = v => Math.round((Number(v) || 0) / 5);
@@ -44,9 +44,22 @@ export function deriveValues(block, settings = DEFAULT_COMBAT) {
         ed: Math.max(0, fifth(CON) + (b.ed || 0)),
         spd: Math.min(12, Math.max(1, 1 + Math.floor(DEX / 10) + (b.spd || 0))),
         strDice: Math.max(0, fifth(STR)),
-        /** Dice that STR above 10 adds to physical abilities with "adds STR". */
-        strBonusDice: Math.max(0, fifth(STR - 10))
+        /** Dice that STR above 10 adds to physical damage that scales with STR. */
+        strBonusDice: Math.max(0, fifth(STR - 10)),
+        /** Dice that DEX above 10 adds to physical damage that scales with DEX. */
+        dexBonusDice: Math.max(0, fifth(DEX - 10))
     };
+}
+
+/**
+ * Extra dice a damage effect gets from the attribute it scales with:
+ * physical damage only, at most doubling the effect's own dice.
+ * @param {object} values - deriveValues() or engine effective() values
+ */
+export function scalingDice(values, effect) {
+    if (effect.type !== 'damage' || !isPhysical(effect.damageType)) return 0;
+    const bonus = effect.scaleWith === 'str' ? values.strBonusDice : effect.scaleWith === 'dex' ? values.dexBonusDice : 0;
+    return Math.min(bonus || 0, effect.dice);
 }
 
 /** 1 + ¼ per phase after the first. */
@@ -70,6 +83,9 @@ export function statusCost(status) {
             return status.amount * durationFactor(d);
         case 'taunt':
             return 5 * d;
+        case 'counter':
+            // Conditional damage: ¾ of the dice's cost per time it can strike back.
+            return 5 * status.dice * 0.75 * (status.triggers || 1) * durationFactor(d);
         default:
             return 0;
     }
@@ -106,9 +122,15 @@ export function getModifier(ability, id) {
  */
 export function abilityCost(ability) {
     const base = ability.effects.reduce((sum, e) => sum + effectCost(e), 0);
-    const advantages = sumModifiers(ability.advantages, ADVANTAGES) + (AREA_TARGETS.includes(ability.target) ? AREA_ADVANTAGE : 0);
+    const separate = hasModifier(ability, 'separateTargets');
+    const own = separate ? ability.effects.filter(e => e.target).length : 0;
+    // Advantages that apply to the whole ability (+¼ per effect with its own target).
+    const advantages = sumModifiers(ability.advantages, ADVANTAGES) + own * SEPARATE_TARGET_ADVANTAGE;
+    // Area is per effect: an effect hitting everyone on a side costs double.
+    const targetOf = e => (separate && e.target ? e.target : ability.target);
+    const weighted = ability.effects.reduce((sum, e) => sum + effectCost(e) * (1 + advantages + (AREA_TARGETS.includes(targetOf(e)) ? AREA_ADVANTAGE : 0)), 0);
     const limitations = sumModifiers(ability.limitations, LIMITATIONS);
-    const ap = Math.round(base * (1 + advantages));
+    const ap = Math.round(weighted);
     const real = Math.round(ap / (1 + limitations));
     let end = 0;
     if (!hasModifier(ability, 'noEnd') && !hasModifier(ability, 'charges')) {

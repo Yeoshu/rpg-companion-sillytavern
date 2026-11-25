@@ -112,6 +112,7 @@ Each stat block:
   "attributes": { "str": 10, "dex": 12, "con": 10 },
   "bought": { "pd": 1 },
   "resistances": { "fire": "weak" },
+  "strike": { "name": "Claws", "damageType": "slash", "description": "Raking claws" },
   "abilities": [
     {
       "name": "Shortbow",
@@ -134,9 +135,10 @@ Rules for stat blocks:
 - abilities: 1 to 3 per combatant. Everyone can already Strike, Dodge, Recover and Flee, so don't list those.
   - target: self, one-ally, one-enemy, all-allies, all-enemies, everyone
   - roll: "attack" (must hit; the target can dodge) or "automatic" (buffs, heals, auras)
-  - damageType: blunt, pierce, slash (physical) or fire, water, earth, air, ice, lightning, poison (elemental). "addStr": true on physical attacks adds the user's strength.
+  - damageType: blunt, pierce, slash (physical) or fire, water, earth, air, ice, lightning, poison (elemental). "scaleWith": "str" (or "dex", for bows and finesse weapons) on physical attacks adds the user's strength (or agility).
+- strike (optional): the name, damage type and look of their basic attack (claws, a club, a fire touch); its strength comes from STR.
   - effects:
-    {"type": "damage", "dice": N, "flat": 0, "damageType": "slash", "addStr": true}
+    {"type": "damage", "dice": N, "flat": 0, "damageType": "slash", "scaleWith": "str"}
     {"type": "heal", "dice": N}
     {"type": "shield", "amount": N, "duration": phases}
     {"type": "status", "status": {"template": "overTime", "name": "Burning", "dice": 1, "damageType": "fire", "duration": 3}}
@@ -144,9 +146,10 @@ Rules for stat blocks:
     {"type": "status", "status": {"template": "modifier", "name": "Weakened", "stat": "ocv|dcv|pd|ed|spd|damage|str|dex|con", "amount": -2, "duration": 3}}
     {"type": "status", "status": {"template": "incapacitate", "name": "Stunned", "duration": 1}}
     {"type": "status", "status": {"template": "taunt", "name": "Provoked", "duration": 2}}
+    {"type": "status", "status": {"template": "counter", "name": "Spiked Hide", "dice": 2, "damageType": "pierce", "triggers": 2, "duration": 3}} (strikes back at whoever hits the holder)
     {"type": "cleanse", "category": "overTime|debuff|buff|incapacitate"}
     {"type": "restoreEnd", "amount": N}
-  - advantages (optional): "armorPiercing", {"id": "lifesteal", "percent": 50}, {"id": "accurate", "levels": 1}, "noEnd"
+  - advantages (optional): "armorPiercing", {"id": "lifesteal", "percent": 50}, {"id": "accurate", "levels": 1}, "noEnd", "separateTargets" (then an effect can have its own "target", e.g. a bite that also heals the user: {"type": "heal", "dice": 1, "target": "self"})
   - limitations (optional): {"id": "charges", "uses": 2}, "doubleEnd", "itemBased", "slow"
 - Points: every stat block is worth points (attributes 1 per point above 10, a damage die 5, a healing die 10; the strongest ability costs full price and each other one a fifth; area targets double an ability's cost). Stay within the budget for each tier at level ${level}: minion ${b.minion ?? '~20'}, standard ${b.standard ?? '~23'}, elite ${b.elite ?? '~30'}, boss ${b.boss ?? '~40'} points${setup.perLevel ? `, plus about ${setup.perLevel} per level above ${level}` : ''}. Anything over budget is scaled down automatically, so spend the points on what makes each enemy distinct.
 - Typical main attacks: minions 2-3 dice, standard 3-4, elite 4-5, bosses 5-7.

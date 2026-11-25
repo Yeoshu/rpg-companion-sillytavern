@@ -15,7 +15,7 @@ import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { getAttributes, getSkills } from '../mechanics/character.js';
 import { normalizeProgression } from '../mechanics/progression.js';
 import {
-    BUYABLE, DAMAGE_TYPES, RESISTANCES, normalizeAbility, normalizeCombatSettings, normalizeStatBlock
+    BUYABLE, DAMAGE_TYPES, RESISTANCES, normalizeAbility, normalizeCombatSettings, normalizeStatBlock, normalizeStrike
 } from '../mechanics/combat/catalog.js';
 import { apCap, abilityCost, levelBudget, statBlockPoints } from '../mechanics/combat/costs.js';
 import { inventoryQuantity } from '../mechanics/combat/inventory.js';
@@ -28,7 +28,7 @@ export function getCombatSettings() {
 }
 
 export function emptySheet() {
-    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0 };
+    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0, strike: normalizeStrike(null) };
 }
 
 /** Cleans a stored sheet (abilities and items go through the catalog sanitizers). */
@@ -45,6 +45,7 @@ export function normalizeSheet(raw) {
     sheet.abilities = (raw.abilities || []).map(a => normalizeAbility(a)).filter(Boolean).map(a => { delete a.quantity; return a; });
     sheet.items = (raw.items || []).map(a => normalizeAbility(a, { item: true })).filter(Boolean);
     sheet.bonusPoints = Math.round(Number(raw.bonusPoints) || 0);
+    sheet.strike = normalizeStrike(raw.strike);
     return sheet;
 }
 
@@ -88,7 +89,8 @@ export function buildPlayerStatBlock(parts = {}) {
         bought: sheet.bought,
         resistances: sheet.resistances,
         abilities: sheet.abilities,
-        items: sheet.items
+        items: sheet.items,
+        strike: sheet.strike
     });
     // (normalizeStatBlock adds STR/DEX/CON at 10 when missing: 0 points.)
     return block;

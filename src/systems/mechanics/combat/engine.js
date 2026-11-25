@@ -15,7 +15,7 @@
 
 import { attributeRoll, checkTarget, resolveCheck, rollDice, successChance } from '../rules.js';
 import { isPhysical, normalizeAbility, normalizeCombatSettings, RESISTANCES } from './catalog.js';
-import { abilityCost, deriveValues, getModifier, hasModifier } from './costs.js';
+import { abilityCost, deriveValues, getModifier, hasModifier, scalingDice } from './costs.js';
 
 /** HERO speed chart: segments a character acts in, by SPD. */
 export const SPEED_CHART = {
@@ -154,6 +154,7 @@ export function effective(state, c) {
         rec: d.rec,
         strDice: d.strDice,
         strBonusDice: d.strBonusDice,
+        dexBonusDice: d.dexBonusDice,
         damageDice: direct.damage,
         dex: attributes[roles.dex] ?? 10,
         attributes
@@ -262,7 +263,7 @@ function startPhase(state, c, rng) {
 /** Counts down statuses that last "phases" at the end of the combatant's phase. */
 function endPhase(state, c, skipped = false) {
     for (const st of [...c.statuses]) {
-        if (!['modifier', 'shield', 'taunt'].includes(st.template)) continue;
+        if (!['modifier', 'shield', 'taunt', 'counter'].includes(st.template)) continue;
         if (st.fresh) { st.fresh = false; continue; }
         st.remaining -= 1;
         if (st.remaining <= 0) removeStatus(state, c, st, 'wears off');
@@ -312,16 +313,17 @@ export function conclude(state, result = 'interrupted') {
 // ---------------------------------------------------------------------------
 // Abilities
 
-/** The basic unarmed Strike: STR/5 d6 blunt. */
+/** The basic attack: STR/5 d6, with the name and damage type from the stat block ("Strike", blunt). */
 export function strikeAbility(state, c) {
     const dice = Math.max(1, effective(state, c).strDice);
+    const strike = c.block.strike || {};
     return {
         id: 'strike',
-        name: 'Strike',
-        description: 'An unarmed blow.',
+        name: strike.name || 'Strike',
+        description: strike.description || 'A basic attack.',
         target: 'one-enemy',
         roll: 'attack',
-        effects: [{ type: 'damage', dice, flat: 0, damageType: 'blunt', addStr: false }],
+        effects: [{ type: 'damage', dice, flat: 0, damageType: strike.damageType || 'blunt', scaleWith: 'none' }],
         advantages: [],
         limitations: [],
         basic: true
@@ -368,15 +370,6 @@ export function validTargets(state, actorId, ability) {
     }
 }
 
-function targetsFor(state, actor, ability, targetId) {
-    const valid = validTargets(state, actor.id, ability);
-    if (['self', 'one-ally', 'one-enemy'].includes(ability.target)) {
-        const id = valid.includes(targetId) ? targetId : valid[0];
-        return id ? [getCombatant(state, id)] : [];
-    }
-    return valid.map(id => getCombatant(state, id));
-}
-
 /** Target number to hit: 11 + OCV (+ Accurate) − DCV. */
 export function attackTargetNumber(state, actor, target, ability) {
     const accurate = getModifier(ability, 'accurate');
@@ -404,7 +397,7 @@ export function resistanceMultiplier(c, type) {
 export function statusCategory(st) {
     if (st.template === 'overTime') return st.heal ? 'buff' : 'overTime';
     if (st.template === 'modifier') return st.amount < 0 ? 'debuff' : 'buff';
-    if (st.template === 'shield') return 'buff';
+    if (st.template === 'shield' || st.template === 'counter') return 'buff';
     if (st.template === 'incapacitate') return 'incapacitate';
     return 'debuff';
 }
@@ -456,7 +449,7 @@ export function act(state, action, rng = Math.random) {
             log(state, actor.id, 'prepare', `${actor.name} begins ${ability.name}; it goes off at the end of the segment.`);
         } else {
             if (!action.resolvingDeferred) payFor(state, actor, ability);
-            if (!knockOut(state, actor)) useAbility(state, actor, ability, action.targetId, rng);
+            if (!knockOut(state, actor)) useAbility(state, actor, ability, action.targetId, rng, action.effectTargets || {});
         }
     } else {
         log(state, actor.id, 'pass', `${actor.name} waits.`);
@@ -497,7 +490,7 @@ function payFor(state, actor, ability) {
     if (ability.quantity !== undefined) ability.quantity = Math.max(0, ability.quantity - 1);
 }
 
-function useAbility(state, actor, ability, targetId, rng) {
+function useAbility(state, actor, ability, targetId, rng, effectTargets = {}) {
     const roll = getModifier(ability, 'requiresRoll');
     if (roll) {
         const skillName = (roll.skill || '').toLowerCase();
@@ -515,26 +508,36 @@ function useAbility(state, actor, ability, targetId, rng) {
         }
     }
 
-    const targets = targetsFor(state, actor, ability, targetId);
-    if (!targets.length) {
+    const slots = abilitySlots(state, actor, ability, targetId, effectTargets);
+    const all = slots.flatMap(slot => slot.targets);
+    if (!all.length) {
         log(state, actor.id, 'error', `${actor.name} uses ${ability.name}, but there is no valid target.`);
         return;
     }
-    const targetNames = ability.target === 'self' ? '' : ` on ${targets.length > 1 ? targets.map(t => t.name).join(', ') : targets[0].name}`;
-    log(state, actor.id, 'action', `${actor.name} uses ${ability.name}${targetNames}.`, { abilityId: ability.id, targets: targets.map(t => t.id) });
+    const names = [...new Set(all.filter(t => t.id !== actor.id || slots.length === 1).map(t => t.name))];
+    const targetNames = ability.target === 'self' && slots.length === 1 ? '' : (names.length ? ` on ${names.join(', ')}` : '');
+    log(state, actor.id, 'action', `${actor.name} uses ${ability.name}${targetNames}.`, { abilityId: ability.id, targets: all.map(t => t.id) });
 
     let dealt = 0;
-    for (const target of targets) {
-        if (!isActive(target)) continue;
-        let crit = false;
-        if (needsAttackRoll(actor, target, ability)) {
-            const t = attackTargetNumber(state, actor, target, ability);
-            const r = resolveCheck(t, rollDice(3, 6, rng));
-            crit = r.critical === 'success';
-            log(state, actor.id, 'roll', `  vs ${target.name}: rolled ${r.total} vs ${t}- → ${r.success ? (crit ? 'critical hit' : 'hit') : 'miss'}.`, { roll: r, targetId: target.id });
-            if (!r.success) continue;
+    const damageState = { first: true };
+    for (const slot of slots) {
+        for (const target of slot.targets) {
+            if (!isActive(target)) continue;
+            let crit = false;
+            const hostile = needsAttackRoll(actor, target, ability);
+            if (hostile) {
+                const t = attackTargetNumber(state, actor, target, ability);
+                const r = resolveCheck(t, rollDice(3, 6, rng));
+                crit = r.critical === 'success';
+                const what = slots.length > 1 && slot.label ? ` (${slot.label})` : '';
+                log(state, actor.id, 'roll', `  vs ${target.name}${what}: rolled ${r.total} vs ${t}- → ${r.success ? (crit ? 'critical hit' : 'hit') : 'miss'}.`, { roll: r, targetId: target.id });
+                if (!r.success) continue;
+            }
+            dealt += applyEffects(state, actor, target, ability, crit, rng, slot.effects, damageState);
+            if (hostile) counterAttack(state, target, actor, ability, rng);
+            if (!isActive(actor)) break;
         }
-        dealt += applyEffects(state, actor, target, ability, crit, rng);
+        if (!isActive(actor)) break;
     }
 
     const lifesteal = getModifier(ability, 'lifesteal');
@@ -545,15 +548,66 @@ function useAbility(state, actor, ability, targetId, rng) {
     }
 }
 
+/** Which side a target type points at. */
+function targetSide(target) {
+    if (target === 'self' || target === 'one-ally' || target === 'all-allies') return 'ally';
+    if (target === 'one-enemy' || target === 'all-enemies') return 'enemy';
+    return 'any';
+}
+
+/**
+ * Splits an ability into target slots. Without the separateTargets advantage
+ * there is one slot (every effect on the ability's targets). With it, effects
+ * without their own target share the main slot, and every effect with its own
+ * target is a slot of its own (each single-target slot is chosen separately;
+ * an unchosen one defaults to the main target when that fits, else the first
+ * valid target).
+ * @returns {{ index: number, target: string, label: string, effects: object[], targets: object[] }[]}
+ */
+export function abilitySlots(state, actor, ability, targetId, effectTargets = {}) {
+    const separate = hasModifier(ability, 'separateTargets');
+    const pickTargets = (target, chosen) => {
+        const valid = validTargets(state, actor.id, { target });
+        if (!['self', 'one-ally', 'one-enemy'].includes(target)) return valid.map(id => getCombatant(state, id));
+        let id = valid.includes(chosen) ? chosen : null;
+        if (!id && valid.includes(targetId) && targetSide(target) === targetSide(ability.target)) id = targetId;
+        if (!id) id = valid[0];
+        return id ? [getCombatant(state, id)] : [];
+    };
+    const mainEffects = separate ? ability.effects.filter(e => !e.target) : ability.effects;
+    const slots = [];
+    if (mainEffects.length) {
+        slots.push({ index: -1, target: ability.target, label: '', effects: mainEffects, targets: pickTargets(ability.target, targetId) });
+    }
+    if (separate) {
+        ability.effects.forEach((e, i) => {
+            if (!e.target) return;
+            slots.push({ index: i, target: e.target, label: `effect ${i + 1}`, effects: [e], targets: pickTargets(e.target, effectTargets[i]) });
+        });
+    }
+    return slots;
+}
+
+/** A counter status on `holder` strikes back at the attacker who just hit them. */
+function counterAttack(state, holder, attacker, ability, rng) {
+    if (ability.isCounter || !isActive(holder) || !isActive(attacker)) return;
+    const st = holder.statuses.find(x => x.template === 'counter' && x.triggers > 0);
+    if (!st) return;
+    log(state, holder.id, 'counter', `  ${holder.name}'s ${st.name} strikes back at ${attacker.name}.`);
+    const counter = { id: 'counter', name: st.name, isCounter: true, advantages: [], limitations: [], effects: [] };
+    dealDamage(state, holder, attacker, counter, { type: 'damage', dice: st.dice, flat: 0, damageType: st.damageType, scaleWith: 'none' }, false, false, rng);
+    st.triggers -= 1;
+    if (st.triggers <= 0) removeStatus(state, holder, st, 'is spent');
+}
+
 /** Applies every effect of an ability to one target. Returns damage dealt. */
-function applyEffects(state, actor, target, ability, crit, rng) {
+function applyEffects(state, actor, target, ability, crit, rng, effects = ability.effects, damageState = { first: true }) {
     let dealt = 0;
-    let firstDamage = true;
-    for (const e of ability.effects) {
+    for (const e of effects) {
         if (!isActive(target)) break;
         if (e.type === 'damage') {
-            dealt += dealDamage(state, actor, target, ability, e, crit, firstDamage, rng);
-            firstDamage = false;
+            dealt += dealDamage(state, actor, target, ability, e, crit, damageState.first, rng);
+            damageState.first = false;
         } else if (e.type === 'heal') {
             const dice = crit ? new Array(e.dice).fill(6) : rollDice(e.dice, 6, rng);
             const amount = dice.reduce((a, b) => a + b, 0) + e.flat;
@@ -579,8 +633,7 @@ function applyEffects(state, actor, target, ability, crit, rng) {
 
 function dealDamage(state, actor, target, ability, e, crit, first, rng) {
     const eff = effective(state, actor);
-    let diceCount = e.dice;
-    if (e.addStr && isPhysical(e.damageType)) diceCount += Math.min(eff.strBonusDice, e.dice);
+    let diceCount = e.dice + scalingDice(eff, e);
     if (first) diceCount = Math.max(0, diceCount + eff.damageDice);
     const dice = crit ? new Array(diceCount).fill(6) : rollDice(diceCount, 6, rng);
     const raw = dice.reduce((a, b) => a + b, 0) + e.flat;
@@ -634,6 +687,7 @@ function applyStatus(state, source, target, status, rng) {
             existing.amount = Math.abs(status.amount) > Math.abs(existing.amount) ? status.amount : existing.amount;
         }
         if (status.template === 'taunt') existing.sourceId = source.id;
+        if (status.triggers) existing.triggers = Math.max(existing.triggers || 0, status.triggers);
         existing.fresh = state.current === target.id;
         log(state, target.id, 'status', `  ${status.name} on ${target.name} is renewed (${existing.remaining} phase${existing.remaining === 1 ? '' : 's'}).`);
         return;
@@ -659,6 +713,7 @@ export function describeStatus(st) {
         case 'incapacitate': return `${st.name} (loses ${phases})`;
         case 'shield': return `${st.name} (absorbs ${st.amount}, ${phases})`;
         case 'taunt': return `${st.name} (must target its source, ${phases})`;
+        case 'counter': return `${st.name} (strikes back for ${st.dice}d6 ${st.damageType} when hit, ${st.triggers}×, ${phases})`;
         default: return st.name;
     }
 }
