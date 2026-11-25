@@ -588,6 +588,8 @@
     "template.settingsModal.sheet.glimmerChance": "Glimmer chance (%)",
     "template.settingsModal.sheet.glimmerMax": "Glimmers per fight",
     "template.settingsModal.sheet.balance": "Keep encounters winnable",
+    "template.settingsModal.sheet.keepWounds": "Saved characters keep their wounds",
+    "template.settingsModal.sheet.keepWoundsNote": "Off: characters saved in a chat start every fight at full HP and END. On: they carry the HP and END they ended the last fight with (restore them in the stat block manager).",
     "template.settingsModal.sheet.balanceNote": "Before a fight, it is played out locally many times. If your chance to win is below the target, groups of tiny creatures (rats, bats, insects) fight as one swarm, and extra enemies wait to join as others fall; if that isn't enough, the last of them stay out of the fight. A single enemy is never weakened.",
     "template.settingsModal.sheet.targetWin": "Target chance to win (%)"
 }

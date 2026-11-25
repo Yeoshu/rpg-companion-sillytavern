@@ -109,7 +109,8 @@ export const defaultSettings = {
         glimmerChance: 5,
         glimmerMaxPerFight: 1,
         balanceEncounters: true,
-        targetWinChance: 65
+        targetWinChance: 65,
+        keepWounds: false
     },
     resolvedQuests: [], // Per-chat quests already completed/removed/answered (lowercase titles)
     askAboutDroppedQuests: true, // Ask whether quests the tracker AI removes were completed

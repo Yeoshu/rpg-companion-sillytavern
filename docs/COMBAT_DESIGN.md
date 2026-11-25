@@ -29,8 +29,10 @@ Status: **agreed**. Built so far:
   - **AI tactics** (optional setting): one call per AI-controlled action;
     anything invalid falls back to the local tactics.
   - **Saving:** after the fight, named newcomers can be saved in the chat and
-    generic ones as templates (`src/systems/features/npcStore.js`); stored
-    characters keep their HP and END (at least 1) between fights. The
+    generic ones as templates (`src/systems/features/npcStore.js`). Stored
+    characters start every fight at full HP and END, unless "Saved characters
+    keep their wounds" is on; then they keep the HP and END (at least 1) they
+    ended the last fight with. The
     Characters manager (from the preview or the character sheet) edits,
     rests and deletes them.
 - Step 5, persistence and settings:
@@ -455,8 +457,11 @@ description.
      reusable templates.
    - Post the summary.
 8. **Health on entry.** HP = max HP × tracker Health %, and the same for END
-   and Energy. Named NPCs keep their HP between fights (stored on their stat
-   block, reset by Rest or by editing).
+   and Energy. Named NPCs start at full HP and END. With "Saved characters
+   keep their wounds" on, they keep their HP between fights instead (stored
+   on their stat block, reset by Rest or by editing). Templates never keep
+   HP. Note that a branch or checkpoint copies the chat's data, saved
+   characters included.
 
 ---
 
