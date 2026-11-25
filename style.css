@@ -1438,6 +1438,44 @@ input.rpg-builder-status-name {
     padding: 0.1em 0.3em;
 }
 
+.rpg-builder-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+}
+
+.rpg-builder-inline select {
+    width: auto;
+    padding: 0.1em 0.3em;
+}
+
+.rpg-builder-compare {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.2em 1em;
+    font-size: 0.9em;
+}
+
+.rpg-sheet-strike {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4em;
+}
+
+.rpg-sheet-strike input[data-strike="name"] {
+    width: 12em;
+}
+
+.rpg-sheet-strike select {
+    width: auto;
+}
+
+input.rpg-sheet-strike-desc {
+    flex: 1 1 100%;
+}
+
 .rpg-builder-readout {
     position: sticky;
     bottom: 0;

@@ -155,7 +155,7 @@ Adding a type later is one entry in a list.
 
 | Effect | Fields | Base cost |
 |---|---|---|
-| **Damage** | dice (d6), flat bonus, damage type, *adds STR* (physical only: adds 1d6 per 5 STR above 10, at no cost, up to the ability's own dice, so STR can at most double it) | 5 per d6, 2 per +1 flat |
+| **Damage** | dice (d6), flat bonus, damage type, *scales with* none / STR / DEX (physical only: adds 1d6 per 5 points of that attribute above 10, at no cost, up to the effect's own dice, so it can at most double it) | 5 per d6, 2 per +1 flat |
 | **Heal** | dice, flat | 10 per d6, 4 per +1 flat |
 | **Shield** | amount absorbed, duration | 1 per point absorbed (× duration, below) |
 | **Apply status** | a status (§4) | cost of the status |
@@ -173,6 +173,7 @@ Adding a type later is one entry in a list.
 | Lifesteal: heals the user for X% of damage dealt | +X/100 (50% → +½) |
 | Accurate: +X OCV with this ability | +¼ per +1 |
 | No END cost | +½ |
+| Separate targets: effects can have their own target (each chosen separately when used; an unchosen one falls back to the main target when that fits, else the first valid one). Area is then counted per effect. | +¼ per effect with its own target |
 
 ### Limitations (lower the price)
 
@@ -219,6 +220,7 @@ carries the mechanics.
 | **Incapacitate** | duration | stun, sleep, freeze, paralysis | 10 per phase lost |
 | **Shield** | amount, duration | ward, barrier | 1 per point × duration factor |
 | **Taunt** | duration | provoke | 5 per phase |
+| **Counter** | dice and damage type, times it can strike back, duration | thorns, riposte, reflective ward | 5 per d6 × ¾ × times × duration factor |
 
 **Duration factor:** 1 + ¼ per phase after the first.
 
@@ -249,7 +251,7 @@ carries the mechanics.
      their maximum.
    - A natural 18 always misses.
    - Area abilities roll once per target.
-2. **Damage** = dice + flat (+ STR bonus dice if the ability adds STR).
+2. **Damage** = dice + flat (+ STR or DEX bonus dice if the effect scales with one).
 3. **× resistance or weakness** for the damage type.
 4. **− PD or ED** (halved for armour-piercing). At least 0.
 5. A **Shield** absorbs damage before HP.
@@ -301,7 +303,7 @@ segments where each combatant acts, so you can see who's coming up.
 
 | Action | Effect |
 |---|---|
-| **Strike** | Unarmed: STR/5 d6 blunt, attack roll, END 1 per 2d6 |
+| **Strike** | The basic attack: STR/5 d6, attack roll, END 1 per 2d6. Its name, damage type and flavour can be changed on the sheet ("Fire Fist", fire). |
 | **Dodge** | +3 DCV until your next phase |
 | **Recover** | Regain REC END (and nothing else) |
 | **Use item** | Use an item (a phase) |
@@ -509,6 +511,25 @@ description.
 Each step is usable and testable before the next one.
 
 ---
+
+## Additions after the overhaul
+
+- **STR or DEX scaling** for physical damage effects (replaces "adds STR";
+  old sheets keep working).
+- **Counter** status: when the holder is hit by an enemy's attack roll, it
+  deals its dice back to the attacker (through their defences), up to its
+  number of times, then it's spent. Misses, automatic abilities and damage
+  over time don't trigger it, and counters never trigger counters.
+- **Basic attack** name, damage type and flavour on the sheet (and in AI
+  stat blocks as `"strike"`).
+- **Separate targets** advantage (table in §3). Magic Missile: three 1d6
+  effects, two with their own one-enemy target, picked one after another.
+  Battle Surge: damage to the main target plus a buff with target self.
+- The ability builder compares an ability's average damage with your basic
+  attack's.
+- **Flavour reaches the AI**: ability, item and basic-attack descriptions go
+  into the set-up sheet, free-action and tactics prompts, and narration and
+  the summary get the descriptions of the abilities that were used.
 
 ## Decisions
 

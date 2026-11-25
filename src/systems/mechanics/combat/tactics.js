@@ -13,16 +13,15 @@
  */
 
 import { isPhysical } from './catalog.js';
-import { statusCost } from './costs.js';
-import { availableActions, effective, statusCategory, getCombatant, hitChance, resistanceMultiplier, validTargets } from './engine.js';
+import { scalingDice, statusCost } from './costs.js';
+import { abilitySlots, availableActions, effective, statusCategory, getCombatant, hitChance, resistanceMultiplier, validTargets } from './engine.js';
 
 const LOW_HP = 0.3;
 const AVG_D6 = 3.5;
 
 function expectedDamage(state, actor, target, ability, effect) {
     const eff = effective(state, actor);
-    let dice = effect.dice;
-    if (effect.addStr && isPhysical(effect.damageType)) dice += Math.min(eff.strBonusDice, effect.dice);
+    const dice = effect.dice + scalingDice(eff, effect);
     const raw = (dice * AVG_D6 + effect.flat) * resistanceMultiplier(target, effect.damageType);
     const t = effective(state, target);
     return Math.max(0, raw - (isPhysical(effect.damageType) ? t.pd : t.ed));
@@ -39,14 +38,14 @@ function hasStatus(target, status) {
 }
 
 /** Expected value of using `ability` on one target. */
-function scoreOnTarget(state, actor, target, ability) {
+function scoreOnTarget(state, actor, target, ability, effects = ability.effects) {
     const enemy = target.side !== actor.side;
     const chance = hitChance(state, actor.id, ability, target.id);
     const missing = target.maxHp - target.hp;
     const low = target.hp / target.maxHp < LOW_HP;
     let score = 0;
 
-    for (const e of ability.effects) {
+    for (const e of effects) {
         switch (e.type) {
             case 'damage': {
                 const dmg = expectedDamage(state, actor, target, ability, e) * chance;
@@ -83,7 +82,7 @@ function scoreOnTarget(state, actor, target, ability) {
         if (actor.block.tier === 'minion') score *= 1 + (1 - target.hp / target.maxHp);
         else if (actor.lastAttackerId === target.id) score *= 1.5;
     }
-    if (!enemy && target.id === actor.id && low && ability.effects.some(e => e.type === 'heal' || e.type === 'shield')) {
+    if (!enemy && target.id === actor.id && low && effects.some(e => e.type === 'heal' || e.type === 'shield')) {
         score *= 3;
     }
     return score;
@@ -107,9 +106,12 @@ export function chooseAction(state, id, rng = Math.random) {
         const targetIds = validTargets(state, id, ability);
         if (!targetIds.length) continue;
         const single = ['self', 'one-ally', 'one-enemy'].includes(ability.target);
+        // Score every target slot as the engine would resolve it (separate targets default sensibly).
+        const score = targetId => abilitySlots(state, actor, ability, targetId)
+            .reduce((sum, slot) => sum + slot.targets.reduce((s, t) => s + scoreOnTarget(state, actor, t, ability, slot.effects), 0), 0);
         const evaluations = single
-            ? targetIds.map(t => ({ targetId: t, score: scoreOnTarget(state, actor, getCombatant(state, t), ability) }))
-            : [{ targetId: null, score: targetIds.reduce((s, t) => s + scoreOnTarget(state, actor, getCombatant(state, t), ability), 0) }];
+            ? targetIds.map(t => ({ targetId: t, score: score(t) }))
+            : [{ targetId: null, score: score(null) }];
         for (const ev of evaluations) {
             let score = ev.score;
             if (option.end > actor.end) score *= 0.3;

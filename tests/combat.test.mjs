@@ -52,7 +52,7 @@ test('sanitizers accept loose AI input and drop invalid parts', () => {
 
 test('derived values follow the spec (example build)', () => {
     const block = normalizeStatBlock({ name: 'Lem', attributes: { str: 13, dex: 15, con: 12 } });
-    assert.deepEqual(deriveValues(block), { maxHp: 44, maxEnd: 24, rec: 5, ocv: 3, dcv: 3, pd: 3, ed: 2, spd: 2, strDice: 3, strBonusDice: 1 });
+    assert.deepEqual(deriveValues(block), { maxHp: 44, maxEnd: 24, rec: 5, ocv: 3, dcv: 3, pd: 3, ed: 2, spd: 2, strDice: 3, strBonusDice: 1, dexBonusDice: 1 });
     const fast = normalizeStatBlock({ name: 'X', attributes: { dex: 20 }, bought: { spd: 2, hp: 6 } });
     assert.equal(deriveValues(fast).spd, 5);
     assert.equal(deriveValues(fast).maxHp, 46);
@@ -414,4 +414,97 @@ test('tier multipliers are configurable', () => {
     assert.equal(deriveValues(normalizeStatBlock({ name: 'B', tier: 'boss' }), s).maxHp, 160);
     assert.equal(normalizeCombatSettings({}).syncTracker, true);
     assert.equal(normalizeCombatSettings({ aiDelay: 99999 }).aiDelay, 5000);
+});
+
+import { abilitySlots } from '../src/systems/mechanics/combat/engine.js';
+import { scalingDice } from '../src/systems/mechanics/combat/costs.js';
+
+test('damage can scale with STR or DEX (physical only, capped at own dice); addStr still works', () => {
+    const v = { strBonusDice: 3, dexBonusDice: 2 };
+    const dex = normalizeAbility({ name: 'Bow', effects: [{ type: 'damage', dice: 3, damageType: 'pierce', scaleWith: 'DEX' }] }).effects[0];
+    assert.equal(dex.scaleWith, 'dex');
+    assert.equal(scalingDice(v, dex), 2);
+    const old = normalizeAbility({ name: 'Axe', effects: [{ type: 'damage', dice: 1, damageType: 'slash', addStr: true }] }).effects[0];
+    assert.equal(old.scaleWith, 'str');
+    assert.equal(scalingDice(v, old), 1, 'capped at the effect\'s own dice');
+    const fire = normalizeAbility({ name: 'X', effects: [{ type: 'damage', dice: 3, damageType: 'fire', scaleWith: 'dex' }] }).effects[0];
+    assert.equal(scalingDice(v, fire), 0, 'elemental damage does not scale');
+
+    const bow = { name: 'Bow', effects: [{ type: 'damage', dice: 2, damageType: 'pierce', scaleWith: 'dex' }] };
+    const state = duel({ attributes: { dex: 25 }, abilities: [bow] }, { attributes: { str: 0, dex: 0, con: 30 } });
+    advance(state);
+    act(state, { type: 'ability', abilityId: 'bow', targetId: 'c2' }, fixed(1)); // crit: (2 + 2) dice × 6, PD 0
+    assert.equal(getCombatant(state, 'c2').hp, 80 - 24);
+});
+
+test('the basic attack can be renamed and change damage type', () => {
+    const block = normalizeStatBlock({ name: 'Lem', strike: { name: 'Fire Fist', damageType: 'Fire', description: 'Burning knuckles.' } });
+    assert.deepEqual(block.strike, { name: 'Fire Fist', damageType: 'fire', description: 'Burning knuckles.' });
+    assert.deepEqual(normalizeStatBlock({ name: 'X' }).strike, { name: 'Strike', damageType: 'blunt', description: '' });
+    const state = duel({ strike: { name: 'Fire Fist', damageType: 'fire' } }, { resistances: { fire: 'weak' } });
+    advance(state);
+    act(state, { type: 'strike', targetId: 'c2' }, fixed(3)); // 2d6 of 3s = 6 fire ×1.5 = 9 − ED 2 = 7
+    assert.equal(getCombatant(state, 'c2').hp, 40 - 7);
+    assert.match(state.log.map(l => l.text).join('\n'), /uses Fire Fist on Goblin/);
+});
+
+test('counter statuses strike back when the holder is hit', () => {
+    const thorns = { name: 'Thorns', target: 'self', roll: 'automatic', effects: [{ type: 'status', status: { template: 'counter', name: 'Thorns', dice: 2, damageType: 'pierce', triggers: 2, duration: 3 } }] };
+    const cost = abilityCost(normalizeAbility(thorns));
+    assert.equal(cost.ap, Math.round(5 * 2 * 0.75 * 2 * 1.5));
+    const state = duel({ attributes: { dex: 0, con: 30 } }, { attributes: { dex: 20 }, abilities: [thorns] });
+    const gob = getCombatant(state, 'c2');
+    const lem = getCombatant(state, 'c1');
+    assert.equal(advance(state), 'c2');
+    act(state, { type: 'ability', abilityId: 'thorns' });
+    advance(state);
+    act(state, { type: 'strike', targetId: 'c2' }, fixed(2)); // hits (6 vs 11+0-4=7-); thorns 2d6 of 2s = 4 − PD 2 = 2 back
+    assert.match(state.log.map(l => l.text).join('\n'), /Thorns strikes back at Lem/);
+    assert.equal(lem.hp, 80 - 2);
+    assert.equal(gob.statuses[0].triggers, 1);
+    // A miss does not trigger it
+    advance(state); act(state, { type: 'pass' });
+    advance(state);
+    act(state, { type: 'strike', targetId: 'c2' }, fixed(6)); // natural 18: miss
+    assert.equal(gob.statuses[0].triggers, 1);
+});
+
+test('separate targets: each effect with its own target is resolved (and rolled) on its own', () => {
+    const missiles = normalizeAbility({
+        name: 'Magic Missile', target: 'one-enemy', roll: 'attack', advantages: ['separateTargets'],
+        effects: [
+            { type: 'damage', dice: 1, damageType: 'fire' },
+            { type: 'damage', dice: 1, damageType: 'fire', target: 'one-enemy' },
+            { type: 'damage', dice: 1, damageType: 'fire', target: 'one-enemy' }
+        ]
+    });
+    // 15 base; +¼ × 2 own targets → 15 × 1.5
+    assert.equal(abilityCost(missiles).ap, 23);
+    const surge = normalizeAbility({
+        name: 'Battle Surge', target: 'one-enemy', advantages: ['separateTargets'],
+        effects: [{ type: 'damage', dice: 3, damageType: 'slash' }, { type: 'status', target: 'self', status: { template: 'modifier', name: 'Surging', stat: 'ocv', amount: 1, duration: 2 } }]
+    });
+    // damage 15 + buff 5×1.25=6.25 → ×1.25 → 26.6
+    assert.equal(abilityCost(surge).ap, 27);
+    // Without the advantage, an effect's own target is ignored
+    const plain = normalizeAbility({ name: 'P', effects: [{ type: 'damage', dice: 2, damageType: 'fire', target: 'all-enemies' }] });
+    assert.equal(abilityCost(plain).ap, 10);
+
+    const lem = normalizeStatBlock({ name: 'Lem', attributes: { dex: 30 }, abilities: [missiles, surge] });
+    const state = createCombat([{ block: lem, side: 'party', isPlayer: true }, { block: normalizeStatBlock({ name: 'A' }), side: 'enemies' }, { block: normalizeStatBlock({ name: 'B' }), side: 'enemies' }], { rng: fixed(1) });
+    advance(state);
+    const slots = abilitySlots(state, getCombatant(state, 'c1'), missiles, 'c2', { 2: 'c3' });
+    assert.deepEqual(slots.map(s => s.targets.map(t => t.id)), [['c2'], ['c2'], ['c3']], 'unchosen defaults to the main target');
+    act(state, { type: 'ability', abilityId: 'magic-missile', targetId: 'c2', effectTargets: { 1: 'c3', 2: 'c3' } }, fixed(3));
+    const rolls = state.log.filter(l => l.kind === 'roll');
+    assert.equal(rolls.length, 3, 'one attack roll per missile');
+    assert.equal(getCombatant(state, 'c2').hp, 40 - 1);   // 3 fire − ED 2
+    assert.equal(getCombatant(state, 'c3').hp, 40 - 2);
+
+    advance(state); act(state, { type: 'pass' });
+    advance(state); act(state, { type: 'pass' });
+    advance(state);
+    act(state, { type: 'ability', abilityId: 'battle-surge', targetId: 'c2' }, fixed(3));
+    assert.equal(getCombatant(state, 'c1').statuses[0].name, 'Surging', 'the buff goes to the user');
+    assert.equal(state.log.filter(l => l.kind === 'roll').length, 4, 'no roll for the self effect');
 });

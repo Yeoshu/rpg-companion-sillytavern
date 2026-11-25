@@ -28,7 +28,10 @@ export const ROLLS = ['attack', 'automatic'];
 
 export const EFFECT_TYPES = ['damage', 'heal', 'shield', 'status', 'cleanse', 'restoreEnd'];
 
-export const STATUS_TEMPLATES = ['overTime', 'modifier', 'incapacitate', 'shield', 'taunt'];
+export const STATUS_TEMPLATES = ['overTime', 'modifier', 'incapacitate', 'shield', 'taunt', 'counter'];
+
+/** What a damage effect scales with: physical damage gains 1d6 per 5 points above 10. */
+export const SCALING = ['none', 'str', 'dex'];
 
 export const CLEANSE_CATEGORIES = ['overTime', 'debuff', 'buff', 'incapacitate'];
 
@@ -57,8 +60,12 @@ export const ADVANTAGES = {
     armorPiercing: { label: 'Armour-piercing', value: () => 0.5 },
     lifesteal: { label: 'Lifesteal', value: a => clamp(a.percent, 1, 100, 50) / 100 },
     accurate: { label: 'Accurate', value: a => 0.25 * clamp(a.levels, 1, 10, 1) },
-    noEnd: { label: 'No END cost', value: () => 0.5 }
+    noEnd: { label: 'No END cost', value: () => 0.5 },
+    /** Effects can have their own targets; +¼ per effect that does (counted in abilityCost). */
+    separateTargets: { label: 'Separate targets', value: () => 0 }
 };
+/** Advantage per effect with its own target (separateTargets). */
+export const SEPARATE_TARGET_ADVANTAGE = 0.25;
 /** Area targets add this advantage automatically. */
 export const AREA_ADVANTAGE = 1;
 
@@ -189,6 +196,11 @@ export function normalizeStatus(raw) {
         if (status.amount === 0) return null;
     } else if (template === 'shield') {
         status.amount = int(raw.amount, 1, 500, 5);
+    } else if (template === 'counter') {
+        // Strikes back at an enemy whose attack hits the holder.
+        status.dice = int(raw.dice, 1, 20, 2);
+        status.damageType = pick(raw.damageType, DAMAGE_TYPES, 'pierce');
+        status.triggers = int(raw.triggers, 1, 10, 1);
     }
     if (template === 'incapacitate' || template === 'taunt') {
         // Attribute role or id the target resists with ('' = no resistance roll).
@@ -198,6 +210,16 @@ export function normalizeStatus(raw) {
 }
 
 export function normalizeEffect(raw) {
+    const effect = normalizeEffectBody(raw);
+    // Own target (only used with the separateTargets advantage).
+    if (effect && raw.target !== undefined && raw.target !== null && raw.target !== '') {
+        const target = pick(raw.target, TARGETS, null);
+        if (target) effect.target = target;
+    }
+    return effect;
+}
+
+function normalizeEffectBody(raw) {
     if (!raw || typeof raw !== 'object') return null;
     const type = pick(raw.type, EFFECT_TYPES, null);
     switch (type) {
@@ -207,7 +229,8 @@ export function normalizeEffect(raw) {
                 dice: int(raw.dice, 0, 50, 0),
                 flat: int(raw.flat, 0, 200, 0),
                 damageType: pick(raw.damageType, DAMAGE_TYPES, 'blunt'),
-                addStr: Boolean(raw.addStr)
+                // Older sheets and AI replies use "addStr": true.
+                scaleWith: pick(raw.scaleWith, SCALING, raw.addStr ? 'str' : 'none')
             };
         case 'heal':
             return { type, dice: int(raw.dice, 0, 50, 0), flat: int(raw.flat, 0, 200, 0) };
@@ -285,6 +308,19 @@ function uniqueIds(list) {
 }
 
 /**
+ * The basic attack's name, damage type and flavour (its dice always come from
+ * STR). Defaults: "Strike", blunt.
+ */
+export function normalizeStrike(raw) {
+    const r = raw && typeof raw === 'object' ? raw : {};
+    return {
+        name: text(r.name, 60) || 'Strike',
+        damageType: pick(r.damageType, DAMAGE_TYPES, 'blunt'),
+        description: text(r.description)
+    };
+}
+
+/**
  * A stat block: the same shape for the player, allies and enemies.
  */
 export function normalizeStatBlock(raw) {
@@ -332,7 +368,8 @@ export function normalizeStatBlock(raw) {
         abilities: uniqueIds((raw.abilities || []).map(a => normalizeAbility(a)).filter(Boolean).map(a => { delete a.quantity; return a; })),
         items: uniqueIds((raw.items || []).map(a => normalizeAbility(a, { item: true })).filter(Boolean)),
         description: text(raw.description, 1000),
-        sprite: text(raw.sprite, 16)
+        sprite: text(raw.sprite, 16),
+        strike: normalizeStrike(raw.strike)
     };
     if (raw.hp !== undefined && raw.hp !== null) block.hp = int(raw.hp, 0, 100000, 0);
     if (raw.end !== undefined && raw.end !== null) block.end = int(raw.end, 0, 100000, 0);

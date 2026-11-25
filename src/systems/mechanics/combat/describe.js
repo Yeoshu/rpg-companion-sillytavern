@@ -45,6 +45,8 @@ export function describeStatusTemplate(st) {
             return `${name}absorbs ${st.amount} for ${phases(st.duration)}`;
         case 'taunt':
             return `${name}must target the user for ${phases(st.duration)}${resist}`;
+        case 'counter':
+            return `${name}strikes back for ${st.dice}d6 ${st.damageType} when hit (up to ${st.triggers || 1}×) for ${phases(st.duration)}`;
         default:
             return st.name || st.template;
     }
@@ -52,7 +54,7 @@ export function describeStatusTemplate(st) {
 
 export function describeEffect(e) {
     switch (e.type) {
-        case 'damage': return `${dice(e.dice, e.flat)}${e.addStr ? ' (+STR)' : ''} ${e.damageType} damage`;
+        case 'damage': return `${dice(e.dice, e.flat)}${e.scaleWith && e.scaleWith !== 'none' ? ` (+${e.scaleWith.toUpperCase()})` : ''} ${e.damageType} damage`;
         case 'heal': return `heals ${dice(e.dice, e.flat)}`;
         case 'shield': return `shield absorbing ${e.amount} for ${phases(e.duration)}`;
         case 'status': return describeStatusTemplate(e.status);
@@ -67,6 +69,7 @@ const MODIFIER_TEXT = {
     lifesteal: m => `lifesteal ${m.percent}%`,
     accurate: m => `+${m.levels} OCV`,
     noEnd: () => 'no END',
+    separateTargets: () => 'separate targets',
     charges: m => `${m.uses} use${m.uses === 1 ? '' : 's'} per fight`,
     doubleEnd: () => 'double END',
     requiresRoll: m => `needs a ${m.skill || (m.attribute || '').toUpperCase()} roll`,
@@ -76,7 +79,10 @@ const MODIFIER_TEXT = {
 
 /** "5d6 fire damage → one enemy (attack roll); armour-piercing" */
 export function describeAbility(ability) {
-    const effects = ability.effects.map(describeEffect).join(', ');
+    const separate = (ability.advantages || []).some(m => m.id === 'separateTargets');
+    const effects = ability.effects
+        .map(e => `${describeEffect(e)}${separate && e.target ? ` (→ ${describeTarget(e.target)})` : ''}`)
+        .join(', ');
     const roll = ability.roll === 'attack' ? 'attack roll' : 'automatic';
     const mods = [...(ability.advantages || []), ...(ability.limitations || [])]
         .map(m => (MODIFIER_TEXT[m.id] ? MODIFIER_TEXT[m.id](m) : m.id));
@@ -93,11 +99,14 @@ export function describeStatBlock(block, derived) {
     const tier = block.tier && block.tier !== 'standard' ? `, ${block.tier}` : '';
     lines.push(`${block.name} (level ${block.level}${tier})`);
     lines.push(`HP ${derived.maxHp}, END ${derived.maxEnd}, OCV ${derived.ocv}, DCV ${derived.dcv}, PD ${derived.pd}, ED ${derived.ed}, SPD ${derived.spd}`);
+    const strike = block.strike || {};
+    lines.push(`Basic attack: ${strike.name || 'Strike'}, ${Math.max(1, derived.strDice)}d6 ${strike.damageType || 'blunt'}${strike.description ? ` ("${strike.description}")` : ''}`);
     const attrs = Object.entries(block.attributes || {}).map(([k, v]) => `${k.toUpperCase()} ${v}`).join(', ');
     if (attrs) lines.push(`Attributes: ${attrs}`);
     const res = Object.entries(block.resistances || {}).map(([type, kind]) => `${kind} to ${type}`).join(', ');
     if (res) lines.push(`Resistances: ${res}`);
-    for (const a of block.abilities || []) lines.push(`- ${a.name}: ${describeAbility(a)}`);
-    for (const a of block.items || []) lines.push(`- Item ${a.name}${a.quantity !== undefined ? ` x${a.quantity}` : ''}: ${describeAbility(a)}`);
+    const flavour = a => (a.description ? ` ("${a.description}")` : '');
+    for (const a of block.abilities || []) lines.push(`- ${a.name}${flavour(a)}: ${describeAbility(a)}`);
+    for (const a of block.items || []) lines.push(`- Item ${a.name}${a.quantity !== undefined ? ` x${a.quantity}` : ''}${flavour(a)}: ${describeAbility(a)}`);
     return lines.join('\n');
 }

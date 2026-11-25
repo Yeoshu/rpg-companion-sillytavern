@@ -40,7 +40,7 @@ import {
 import { normalizeProgression } from '../mechanics/progression.js';
 import { TIERS, normalizeStatBlock } from '../mechanics/combat/catalog.js';
 import { deriveValues, statBlockPoints, tierBudget } from '../mechanics/combat/costs.js';
-import { describeAbility, describeStatBlock } from '../mechanics/combat/describe.js';
+import { describeAbility, describeEffect, describeStatBlock } from '../mechanics/combat/describe.js';
 import { buildRoster } from '../mechanics/combat/roster.js';
 import {
     act, advance, availableActions, conclude, createCombat, describeStatus, effective, getCombatant, hitChance,
@@ -386,6 +386,24 @@ export class EncounterModal {
         return lines;
     }
 
+    /** "Lem's Fire Bolt: a lance of white flame" for every described ability used in `lines`. */
+    abilityNotes(lines) {
+        const text = lines.join('\n');
+        const notes = [];
+        for (const c of this.state.combatants) {
+            const strike = c.block.strike || {};
+            const used = [
+                { name: strike.name || 'Strike', description: strike.description },
+                ...(c.block.abilities || []),
+                ...(c.block.items || [])
+            ];
+            for (const a of used) {
+                if (a.description && text.includes(`${c.name} uses ${a.name}`)) notes.push(`${c.name}'s ${a.name}: ${a.description}`);
+            }
+        }
+        return notes;
+    }
+
     /** Narrates everything since the last narration (one AI call). Failures are skipped quietly. */
     async narrate() {
         const lines = this.pendingLines();
@@ -403,6 +421,7 @@ export class EncounterModal {
                 combatants: this.state.combatants,
                 lines,
                 previous: this.narrations.at(-1)?.text || '',
+                abilityNotes: this.abilityNotes(lines),
                 style: extensionSettings.encounterSettings?.combatNarrative || {},
                 styleGuide: extensionSettings.customCombatNarrativePrompt || getDefaultPrompts().combatNarrative
             });
@@ -472,7 +491,7 @@ export class EncounterModal {
         const attributes = getAttributes().map(a => ({ id: a.id, name: a.name }));
         const skills = getSkills().map(sk => sk.name);
         const maxAp = Math.max(5, Math.floor(apCap(current.block.level, getCombatSettings()) / 2));
-        const o = { options, combatants: this.state.combatants, attributes, skills, maxAp };
+        const o = { options, combatants: this.state.combatants, attributes, skills, maxAp, strikeName: current.block.strike?.name };
         this.freeDraft = text;
         this.thinking = t('encounter.ui.interpreting', 'Working out what that means...');
         this.renderBattle();
@@ -500,13 +519,7 @@ export class EncounterModal {
             const type = parsed.kind === 'item' ? 'item' : 'ability';
             const key = parsed.kind === 'item' ? 'itemId' : 'abilityId';
             const ability = parsed.ability.id === 'strike' ? abilities.find(a => a.ability.id === 'strike').ability : parsed.ability;
-            const targets = validTargets(this.state, current.id, ability);
-            if (SINGLE_TARGETS.includes(ability.target) && !targets.includes(parsed.targetId)) {
-                this.selecting = { type, key, id: ability.id, ability, targets, intent: text };
-                this.renderBattle();
-                return;
-            }
-            this.playerAction({ type, [key]: ability.id, targetId: parsed.targetId || targets[0] }, text);
+            this.startSelection({ type, key, ability, intent: text, mainTarget: parsed.targetId });
             return;
         }
         await this.confirmImprovised(current, parsed, text);
@@ -565,12 +578,52 @@ export class EncounterModal {
         const ability = option.ability;
         const type = kind === 'item' ? 'item' : 'ability';
         const key = kind === 'item' ? 'itemId' : 'abilityId';
-        const targets = validTargets(this.state, current.id, ability);
-        if (!SINGLE_TARGETS.includes(ability.target) || (ability.target === 'one-ally' && targets.length === 1)) {
-            this.playerAction({ type, [key]: id, targetId: targets[0] });
+        this.startSelection({ type, key, ability });
+    }
+
+    /**
+     * Works out which targets the player has to pick for an ability (the main
+     * target, and each effect with its own single target under "Separate
+     * targets"), then picks them one by one, or acts straight away.
+     * @param {object} o - { type, key, ability, intent?, mainTarget? (already chosen) }
+     */
+    startSelection({ type, key, ability, intent = '', mainTarget = null }) {
+        const current = getCombatant(this.state, this.state.current);
+        const valid = target => validTargets(this.state, current.id, { target });
+        const needsPick = target => target === 'one-enemy' || (target === 'one-ally' && valid(target).length > 1);
+        const separate = (ability.advantages || []).some(m => m.id === 'separateTargets');
+        const effects = ability.effects || [];
+        const picks = [];
+        if ((!separate || effects.some(e => !e.target)) && needsPick(ability.target) && !(mainTarget && valid(ability.target).includes(mainTarget))) {
+            picks.push({ index: -1, target: ability.target, label: '' });
+        }
+        if (separate) {
+            effects.forEach((e, i) => {
+                if (e.target && needsPick(e.target)) picks.push({ index: i, target: e.target, label: describeEffect(e) });
+            });
+        }
+        const action = { type, [key]: ability.id, targetId: mainTarget || valid(ability.target)[0], effectTargets: {} };
+        if (!picks.length) {
+            this.playerAction(action, intent);
             return;
         }
-        this.selecting = { type, key, id, ability, targets };
+        this.selecting = { type, key, id: ability.id, ability, picks, step: 0, action, intent, targets: valid(picks[0].target) };
+        this.renderBattle();
+    }
+
+    /** A target card was clicked while picking. */
+    pickTarget(id) {
+        const s = this.selecting;
+        if (!s || !s.targets.includes(id)) return;
+        const pick = s.picks[s.step];
+        if (pick.index === -1) s.action.targetId = id;
+        else s.action.effectTargets[pick.index] = id;
+        s.step += 1;
+        if (s.step >= s.picks.length) {
+            this.playerAction(s.action, s.intent || '');
+            return;
+        }
+        s.targets = validTargets(this.state, this.state.current, { target: s.picks[s.step].target });
         this.renderBattle();
     }
 
@@ -611,10 +664,7 @@ export class EncounterModal {
             event.preventDefault();
             this.freeAction(freeForm.querySelector('input').value);
         });
-        main.querySelectorAll('.rpg-combat-card.is-target').forEach(cardEl => cardEl.addEventListener('click', () => {
-            const s = this.selecting;
-            this.playerAction({ type: s.type, [s.key]: s.id, targetId: cardEl.dataset.id }, s.intent || '');
-        }));
+        main.querySelectorAll('.rpg-combat-card.is-target').forEach(cardEl => cardEl.addEventListener('click', () => this.pickTarget(cardEl.dataset.id)));
     }
 
     renderTimeline() {
@@ -679,7 +729,7 @@ export class EncounterModal {
                 <div class="rpg-combat-actions">
                     ${header}
                     <div class="rpg-combat-selecting">
-                        <span><i class="fa-solid fa-crosshairs"></i> ${esc(t('encounter.ui.chooseTarget', 'Choose a target for {name}').replace('{name}', s.ability.name))}</span>
+                        <span><i class="fa-solid fa-crosshairs"></i> ${esc(t('encounter.ui.chooseTarget', 'Choose a target for {name}').replace('{name}', s.ability.name))}${s.picks.length > 1 ? ` <small class="rpg-combat-dim">(${s.step + 1}/${s.picks.length}${s.picks[s.step].label ? `: ${esc(s.picks[s.step].label)}` : ''})</small>` : ''}</span>
                         <button type="button" class="rpg-btn rpg-btn-secondary" data-combat-cancel><i class="fa-solid fa-xmark"></i> ${esc(t('global.cancel', 'Cancel'))}</button>
                     </div>
                 </div>`;
@@ -782,6 +832,8 @@ export class EncounterModal {
                 lines.push(entry.text);
             });
             lines.push(...narrated(this.state.log.length));
+            const notes = this.abilityNotes(lines);
+            if (notes.length) lines.unshift('What the abilities used look like:', ...notes.map(n => `- ${n}`), '');
             currentEncounter.encounterLog = lines;
 
             const record = {

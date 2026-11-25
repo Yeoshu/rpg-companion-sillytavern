@@ -51,6 +51,7 @@ export function describeCombatants(combatants) {
  * @param {string} [o.previous] - the last narration, for continuity
  * @param {object} [o.style] - { tense, person, narration, pov }
  * @param {string} [o.styleGuide] - writing guidelines ({userName} is replaced)
+ * @param {string[]} [o.abilityNotes] - "Name: flavour" for abilities used in these lines
  * @param {number} [o.words]
  */
 export function buildNarrationPrompt(o) {
@@ -60,6 +61,7 @@ export function buildNarrationPrompt(o) {
         `You narrate a fight in an ongoing roleplay, one moment at a time. The fight is run by a rules engine: every hit, miss, amount of damage and effect below has already been decided. Describe what happened; never change, add or undo an outcome.`,
         o.environment ? `\nThe battlefield: ${o.environment}` : '',
         `\nWho is fighting:\n${describeCombatants(o.combatants || [])}`,
+        o.abilityNotes?.length ? `\nWhat the abilities used look like:\n${o.abilityNotes.map(n => `- ${n}`).join('\n')}` : '',
         `\nWrite in ${style.tense || 'present'} tense, ${style.person || 'second'} person, ${style.narration || 'limited'} narration, from ${style.pov || o.userName}'s point of view.`,
         o.styleGuide ? `\n${String(o.styleGuide).replace(/{userName}/g, o.userName)}` : ''
     ]);
@@ -96,12 +98,12 @@ export function cleanNarration(text) {
  * @param {string} [o.environment]
  */
 export function buildFreeActionPrompt(o) {
-    const abilityLines = o.options.map(({ ability, kind }) => `- ${ability.name}${kind === 'item' ? ' (item)' : ''}: ${describeAbility(ability)}`);
+    const abilityLines = o.options.map(({ ability, kind }) => `- ${ability.name}${kind === 'item' ? ' (item)' : ''}${ability.description ? ` ("${ability.description}")` : ''}: ${describeAbility(ability)}`);
     const system = list([
         `You are the game master of a turn-based fight run by a rules engine. ${o.actor.name} describes what they do; you decide how the rules handle it. You never decide the outcome: the engine rolls the dice.`,
         o.environment ? `\nThe battlefield: ${o.environment}` : '',
         `\nCombatants:\n${describeCombatants(o.combatants)}`,
-        `\n${o.actor.name}'s options:\n${list(abilityLines) || '- (no abilities)'}\n- Strike: an unarmed blow\n- Dodge, Recover (catch breath), Flee`,
+        `\n${o.actor.name}'s options:\n${list(abilityLines) || '- (no abilities)'}\n- ${o.actor.block?.strike?.name || 'Strike'}: their basic attack${o.actor.block?.strike?.description ? ` ("${o.actor.block.strike.description}")` : ''}\n- Dodge, Recover (catch breath), Flee`,
         `\nAttributes: ${o.attributes.map(a => a.name).join(', ')}. Skills: ${o.skills.length ? o.skills.join(', ') : 'none'}.`
     ]);
     const user = list([
@@ -144,7 +146,8 @@ export function parseFreeAction(raw, o) {
     }
     if (type === 'ability') {
         const name = String(raw.ability || '').trim().toLowerCase();
-        if (name === 'strike') return { kind: 'ability', ability: { id: 'strike', name: 'Strike', target: 'one-enemy' }, targetId: target?.id ?? null };
+        const strikeName = String(o.strikeName || 'strike').toLowerCase();
+        if (name === 'strike' || name === strikeName) return { kind: 'ability', ability: { id: 'strike', name: 'Strike', target: 'one-enemy' }, targetId: target?.id ?? null };
         const option = o.options.find(x => x.ability.name.toLowerCase() === name || x.ability.id === name)
             || byName(o.options.map(x => ({ ...x, name: x.ability.name })), raw.ability);
         return option ? { kind: option.kind, ability: option.ability, targetId: target?.id ?? null } : null;
@@ -181,7 +184,7 @@ export function parseFreeAction(raw, o) {
  * @param {object} o - { actor, combatants, options: [{ability, kind}], environment }
  */
 export function buildTacticsPrompt(o) {
-    const opts = o.options.map(({ ability, kind }) => `- ${ability.name}${kind === 'item' ? ' (item)' : ''}: ${describeAbility(ability)}`);
+    const opts = o.options.map(({ ability, kind }) => `- ${ability.name}${kind === 'item' ? ' (item)' : ''}${ability.description ? ` ("${ability.description}")` : ''}: ${describeAbility(ability)}`);
     const statuses = c => (c.statuses?.length ? ` [${c.statuses.map(describeStatus).join('; ')}]` : '');
     const others = o.combatants.filter(c => !c.out && !c.fled)
         .map(c => `- ${c.name} (${c.side === o.actor.side ? 'ally' : 'enemy'}): ${c.hp}/${c.maxHp} HP${statuses(c)}`);
@@ -189,7 +192,7 @@ export function buildTacticsPrompt(o) {
     const user = list([
         `${o.actor.name} has ${o.actor.hp}/${o.actor.maxHp} HP and ${o.actor.end}/${o.actor.maxEnd} END.`,
         `Combatants:\n${list(others)}`,
-        `Options:\n${list(opts)}\n- Strike\n- Dodge\n- Recover\n- Flee`,
+        `Options:\n${list(opts)}\n- Strike (their basic attack${o.actor.block?.strike?.name && o.actor.block.strike.name !== 'Strike' ? `: ${o.actor.block.strike.name}` : ''})\n- Dodge\n- Recover\n- Flee`,
         `Reply with JSON only: {"action": "<option name>", "target": "<combatant name or null>"}`
     ]);
     return [{ role: 'system', content: system }, { role: 'user', content: user }];
@@ -201,7 +204,7 @@ export function parseTactics(raw, o) {
     const action = String(raw.action || '').trim().toLowerCase();
     if (['dodge', 'recover', 'flee'].includes(action)) return { type: action };
     const target = byName(o.combatants.filter(c => !c.out && !c.fled), raw.target);
-    if (action === 'strike') return target ? { type: 'strike', targetId: target.id } : null;
+    if (action === 'strike' || action === String(o.actor?.block?.strike?.name || '').toLowerCase()) return target ? { type: 'strike', targetId: target.id } : null;
     const option = o.options.find(x => x.ability.name.toLowerCase() === action || x.ability.id === action);
     if (!option) return null;
     return option.kind === 'item'

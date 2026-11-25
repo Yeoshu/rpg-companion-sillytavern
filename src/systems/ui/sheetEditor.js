@@ -18,7 +18,7 @@ import {
     PHYSICAL_TYPES, RESISTANCES, STATUS_TEMPLATES, TARGETS, normalizeAbility
 } from '../mechanics/combat/catalog.js';
 import {
-    abilityCost, abilityPoints, abilityPoolCost, apCap, deriveValues
+    abilityCost, abilityPoints, abilityPoolCost, apCap, deriveValues, scalingDice
 } from '../mechanics/combat/costs.js';
 import { describeAbility, describeTarget } from '../mechanics/combat/describe.js';
 import {
@@ -55,7 +55,8 @@ const TEMPLATE_LABELS = {
     modifier: 'Stat modifier (buff, debuff)',
     incapacitate: 'Incapacitate (stun, sleep)',
     shield: 'Shield (absorbs damage)',
-    taunt: 'Taunt (must target the user)'
+    taunt: 'Taunt (must target the user)',
+    counter: 'Counter (strikes back when hit)'
 };
 
 const EFFECT_LABELS = {
@@ -150,6 +151,16 @@ export async function openSheetEditor() {
                                     </select>
                                 </label>`).join('')}
                         </div>`).join('')}
+                </div>
+            </section>
+
+            <section class="rpg-sheet-section">
+                <h4>${esc(t('sheet.basicAttack', 'Basic attack'))} <small>${esc(t('sheet.basicAttackHint', 'free; its dice come from STR'))}</small></h4>
+                <div class="rpg-sheet-strike">
+                    <input type="text" class="text_pole" data-strike="name" value="${esc(work.sheet.strike?.name || 'Strike')}" maxlength="60" placeholder="Strike">
+                    <select class="text_pole" data-strike="damageType">${DAMAGE_TYPES.map(d => `<option value="${d}" ${(work.sheet.strike?.damageType || 'blunt') === d ? 'selected' : ''}>${esc(cap(d))}</option>`).join('')}</select>
+                    <span class="rpg-sheet-dim" data-out="strike-dice"></span>
+                    <input type="text" class="text_pole rpg-sheet-strike-desc" data-strike="description" value="${esc(work.sheet.strike?.description || '')}" maxlength="500" placeholder="${esc(t('sheet.strikeDescription', 'Flavour (e.g. a jab with brass knuckles)'))}">
                 </div>
             </section>
 
@@ -261,6 +272,8 @@ export async function openSheetEditor() {
             const cost = Math.round(b.cost * (work.sheet.bought[key] || 0) * 10) / 10;
             $root.find(`[data-out="bought-cost-${key}"]`).text(cost ? `${cost} CP` : '');
         }
+        const strikeDice = Math.max(1, derived.strDice);
+        $root.find('[data-out="strike-dice"]').text(`${strikeDice}d6 (${t('builder.avg', 'average')} ${strikeDice * 3.5})`);
         for (const s of skills) {
             const v = Number(work.skills[s.key] ?? 0);
             $root.find(`[data-out="skill-cost-${s.key}"]`).text(v ? `${v * progression.skillCost} CP` : '');
@@ -296,6 +309,9 @@ export async function openSheetEditor() {
         if (v) work.sheet.resistances[type] = v;
         else delete work.sheet.resistances[type];
         refresh();
+    });
+    $root.on('input change', '[data-strike]', function () {
+        work.sheet.strike = { ...(work.sheet.strike || {}), [$(this).data('strike')]: $(this).val() };
     });
     $root.on('change', '[data-field="bonus"]', function () {
         work.sheet.bonusPoints = Math.round(Number($(this).val()) || 0);
@@ -433,15 +449,16 @@ const MOD_HELP = {
     doubleEnd: 'Costs twice the END (−½)',
     requiresRoll: 'Needs a skill roll to work; a failed roll wastes the phase (−½)',
     itemBased: 'Comes from a focus or item that can be lost or taken (−½)',
-    slow: 'Goes off at the end of the segment, after everyone else (−¼)'
+    slow: 'Goes off at the end of the segment, after everyone else (−¼)',
+    separateTargets: 'Effects can have their own targets, each chosen separately (+¼ per effect with its own target; an effect hitting a whole side costs double)'
 };
 
 function newEffect(type) {
     switch (type) {
-        case 'damage': return { type, dice: 2, flat: 0, damageType: 'blunt', addStr: false };
+        case 'damage': return { type, dice: 2, flat: 0, damageType: 'blunt', scaleWith: 'none' };
         case 'heal': return { type, dice: 2, flat: 0 };
         case 'shield': return { type, amount: 10, duration: 3 };
-        case 'status': return { type, status: { template: 'modifier', name: '', description: '', duration: 3, stat: 'ocv', amount: -2, dice: 1, damageType: 'fire', heal: false, resistWith: 'con' } };
+        case 'status': return { type, status: { template: 'modifier', name: '', description: '', duration: 3, stat: 'ocv', amount: -2, dice: 1, damageType: 'fire', heal: false, resistWith: 'con', triggers: 1 } };
         case 'cleanse': return { type, category: 'debuff' };
         case 'restoreEnd': return { type, amount: 5 };
         default: return null;
@@ -479,13 +496,17 @@ function fromDraft(draft, kind) {
             const { on, ...rest } = draft.mods[id];
             return { id, ...rest };
         });
+    const separate = draft.mods.separateTargets?.on;
     const raw = {
         id: draft.id,
         name: draft.name,
         description: draft.description,
         target: draft.target,
         roll: draft.roll,
-        effects: draft.effects,
+        effects: draft.effects.map(e => {
+            const { target, ...rest } = e;
+            return separate && target ? { ...rest, target } : rest;
+        }),
         advantages: pickMods(ADVANTAGES),
         limitations: pickMods(LIMITATIONS)
     };
@@ -527,7 +548,8 @@ export async function openAbilityBuilder(ability, { kind = 'ability', work, inde
             case 'damage': return `
                 ${num(`${p}.dice`, e.dice, 'min="0" max="50"')}<span>d6 +</span>${num(`${p}.flat`, e.flat, 'min="0"')}
                 <select class="text_pole" data-path="${p}.damageType">${DAMAGE_TYPES.map(d => opt(d, cap(d), e.damageType)).join('')}</select>
-                <label class="checkbox_label" title="${esc(t('builder.addStrHint', 'Physical only: +1d6 per 5 STR above 10, up to this ability\'s own dice'))}"><input type="checkbox" data-path="${p}.addStr" ${e.addStr ? 'checked' : ''}> ${esc(t('builder.addStr', 'adds STR'))}</label>`;
+                <label class="rpg-builder-inline" title="${esc(t('builder.scaleHint', 'Physical damage only: +1d6 per 5 points above 10 in that attribute, up to this effect\'s own dice'))}"><span>${esc(t('builder.scales', 'scales with'))}</span>
+                    <select class="text_pole" data-path="${p}.scaleWith">${opt('none', t('builder.scaleNone', 'nothing'), e.scaleWith || 'none')}${opt('str', 'STR', e.scaleWith)}${opt('dex', 'DEX', e.scaleWith)}</select></label>`;
             case 'heal': return `${num(`${p}.dice`, e.dice, 'min="0" max="50"')}<span>d6 +</span>${num(`${p}.flat`, e.flat, 'min="0"')}`;
             case 'shield': return `<span>${esc(t('builder.absorbs', 'absorbs'))}</span>${num(`${p}.amount`, e.amount, 'min="1"')}<span>${esc(t('builder.for', 'for'))}</span>${num(`${p}.duration`, e.duration, 'min="1" max="20"')}<span>${esc(t('builder.phases', 'phases'))}</span>`;
             case 'cleanse': return `<select class="text_pole" data-path="${p}.category">${CLEANSE_CATEGORIES.map(c => opt(c, { overTime: 'Damage over time', debuff: 'Debuffs', buff: 'Buffs', incapacitate: 'Incapacitation' }[c], e.category)).join('')}</select>`;
@@ -545,6 +567,10 @@ export async function openAbilityBuilder(ability, { kind = 'ability', work, inde
                     specific = `<select class="text_pole" data-path="${sp}.stat">${statOptions(s.stat)}</select>${num(`${sp}.amount`, s.amount, 'min="-50" max="50"')}`;
                 } else if (s.template === 'shield') {
                     specific = `<span>${esc(t('builder.absorbs', 'absorbs'))}</span>${num(`${sp}.amount`, s.amount, 'min="1"')}`;
+                } else if (s.template === 'counter') {
+                    specific = `<span>${esc(t('builder.strikesBack', 'strikes back for'))}</span>${num(`${sp}.dice`, s.dice, 'min="1" max="20"')}<span>d6</span>
+                        <select class="text_pole" data-path="${sp}.damageType">${DAMAGE_TYPES.map(d => opt(d, cap(d), s.damageType)).join('')}</select>
+                        <span>${esc(t('builder.upTo', 'up to'))}</span>${num(`${sp}.triggers`, s.triggers ?? 1, 'min="1" max="10"')}<span>${esc(t('builder.times', 'times'))},</span>`;
                 }
                 const resist = (s.template === 'incapacitate' || s.template === 'taunt') ? `
                     <span>${esc(t('builder.resistWith', 'resisted with'))}</span>
@@ -591,6 +617,10 @@ export async function openAbilityBuilder(ability, { kind = 'ability', work, inde
                 ${draft.effects.map((e, i) => `
                     <div class="rpg-builder-effect" data-index="${i}">
                         <strong>${esc(EFFECT_LABELS[e.type])}</strong>
+                        ${draft.mods.separateTargets.on ? `
+                            <label class="rpg-builder-inline" title="${esc(t('builder.effectTargetHint', 'Leave on the main target, or give this effect its own target (chosen separately when used)'))}"><span>→</span>
+                                <select class="text_pole" data-path="effects.${i}.target" data-rerender>${opt('', t('builder.mainTarget', 'main target'), e.target || '')}${TARGETS.map(x => opt(x, describeTarget(x), e.target || '')).join('')}</select></label>
+                            <span class="rpg-builder-break"></span>` : ''}
                         ${effectFields(e, i)}
                         <button type="button" class="menu_button rpg-builder-remove" data-action="builder-remove-effect" title="${esc(t('sheet.delete', 'Delete'))}"><i class="fa-solid fa-xmark"></i></button>
                     </div>`).join('')}
@@ -634,7 +664,22 @@ export async function openAbilityBuilder(ability, { kind = 'ability', work, inde
                 ${kind === 'item' ? '' : `<span><strong>${cost.end}</strong> END</span>`}
             </div>
             ${cost.ap > limit ? `<div class="rpg-builder-warn"><i class="fa-solid fa-triangle-exclamation"></i> ${esc(t('builder.overCap', 'Above the guide of {cap} AP for level {level}. Allowed, but strong for this level.').replace('{cap}', limit).replace('{level}', level))}</div>` : ''}
-            <div class="rpg-builder-summary">${esc(describeAbility(a))}</div>`);
+            <div class="rpg-builder-summary">${esc(describeAbility(a))}</div>
+            ${compareWithStrike(a)}`);
+    };
+
+    /** "Average damage 17.5 · your Strike: 3d6 blunt, 10.5" (before defences). */
+    const compareWithStrike = (a) => {
+        const values = deriveValues(buildPlayerStatBlock(work || {}), settings);
+        const strike = work?.sheet?.strike || {};
+        const strikeDice = Math.max(1, values.strDice);
+        const damage = a.effects.filter(e => e.type === 'damage');
+        const avg = damage.reduce((sum, e) => sum + (e.dice + scalingDice(values, e)) * 3.5 + e.flat, 0);
+        return `<div class="rpg-builder-compare">
+            ${damage.length ? `<span>${esc(t('builder.avgDamage', 'Average damage'))}: <strong>${avg}</strong></span>` : ''}
+            <span>${esc(t('builder.yourStrike', 'Your {name}').replace('{name}', strike.name || 'Strike'))}: ${strikeDice}d6 ${esc(strike.damageType || 'blunt')}, ${esc(t('builder.avg', 'average'))} ${strikeDice * 3.5}</span>
+            <small class="rpg-sheet-dim">${esc(t('builder.beforeDefences', 'all damage effects, before defences; area effects per target'))}</small>
+        </div>`;
     };
 
     // Inputs bound to the draft by path.
@@ -649,8 +694,10 @@ export async function openAbilityBuilder(ability, { kind = 'ability', work, inde
         else refresh();
     });
     $root.on('change', '[data-mod]', function () {
-        draft.mods[$(this).data('mod')].on = this.checked;
-        refresh();
+        const id = $(this).data('mod');
+        draft.mods[id].on = this.checked;
+        if (id === 'separateTargets') render();
+        else refresh();
     });
     $root.on('input change', '[data-mod-param]', function () {
         const id = $(this).data('mod-param');
