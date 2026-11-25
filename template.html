@@ -678,7 +678,14 @@
                     <span data-i18n-key="template.settingsModal.progression.askDropped">Ask when the tracker removes a quest</span>
                 </label>
                 <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.progression.askDroppedNote">
-                    When an AI tracker update drops a quest, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.
+                    When an AI tracker update drops a quest or marks it completed, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.
+                </small>
+                <div class="rpg-setting-row">
+                    <label for="rpg-quest-memory" data-i18n-key="template.settingsModal.progression.questMemory">Remind the AI of finished quests for (messages):</label>
+                    <input type="number" id="rpg-quest-memory" class="rpg-input" min="0" max="500" step="1" />
+                </div>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.progression.questMemoryNote">
+                    Quests completed or abandoned are listed by name in the tracker prompt for this many messages, so they aren't created again. The quest rules themselves are in the Prompts editor (Quest Guidelines).
                 </small>
                 <button type="button" id="rpg-progression-reset" class="menu_button">
                     <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.settingsModal.progression.reset">Restore defaults</span>
@@ -1249,6 +1256,20 @@
                 </small>
                 <textarea id="rpg-prompt-attempt" class="rpg-prompt-textarea" rows="8"></textarea>
                 <button class="menu_button rpg-restore-prompt-btn" data-prompt="attempt" style="margin-top: 8px;">
+                    <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.promptsEditor.restoreDefault">Restore Default</span>
+                </button>
+            </div>
+
+            <!-- Quest Guidelines Prompt -->
+            <div class="rpg-prompt-editor-section">
+                <label for="rpg-prompt-quests" class="rpg-field-label">
+                    <i class="fa-solid fa-scroll"></i> <span data-i18n-key="template.promptsEditor.questPrompt.title">Quest Guidelines</span>
+                </label>
+                <small class="rpg-note" data-i18n-key="template.promptsEditor.questPrompt.note">
+                    Added to every tracker update: how the AI names, updates, adds and finishes quests. Placeholders: {userName}, {recentQuests} (the quests finished or abandoned recently, so they aren't made again).
+                </small>
+                <textarea id="rpg-prompt-quests" class="rpg-prompt-textarea" rows="10"></textarea>
+                <button class="menu_button rpg-restore-prompt-btn" data-prompt="quests" style="margin-top: 8px;">
                     <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.promptsEditor.restoreDefault">Restore Default</span>
                 </button>
             </div>

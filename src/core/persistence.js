@@ -3,6 +3,7 @@
  * Handles saving/loading extension settings and chat data
  */
 
+import { normalizeQuests, toStored } from '../systems/mechanics/quests.js';
 import { saveSettingsDebounced, chat_metadata, saveChatDebounced, getCurrentChatId } from '../../../../../../script.js';
 import { getContext } from '../../../../../extensions.js';
 import {
@@ -202,38 +203,9 @@ function normalizeUserStatsValue(userStats) {
     return mergeWithDefaults(DEFAULT_USER_STATS, normalized);
 }
 
-function normalizeQuestValue(quest) {
-    let value = quest;
-    while (isPlainObject(value) && value.value !== undefined) {
-        value = value.value;
-    }
-
-    if (typeof value === 'string') {
-        return value.trim() || 'None';
-    }
-
-    if (isPlainObject(value)) {
-        return value.title || value.description || JSON.stringify(value);
-    }
-
-    return value == null ? 'None' : String(value);
-}
-
+/** Quests as { main: quest | 'None', optional: quest[] } (see mechanics/quests.js). */
 function normalizeQuestsValue(quests) {
-    if (!isPlainObject(quests)) {
-        return { main: 'None', optional: [] };
-    }
-
-    const optionalSource = Array.isArray(quests.optional)
-        ? quests.optional
-        : (Array.isArray(quests.active) ? quests.active : []);
-
-    return {
-        main: normalizeQuestValue(quests.main),
-        optional: optionalSource
-            .map(normalizeQuestValue)
-            .filter(quest => quest && quest !== 'None')
-    };
+    return toStored(normalizeQuests(quests));
 }
 
 function normalizeSettings(savedSettings) {
@@ -749,6 +721,7 @@ export function saveChatData() {
         statBlocks: extensionSettings.statBlocks || {},
         encounterLogs: extensionSettings.encounterLogs || [],
         resolvedQuests: extensionSettings.resolvedQuests || [],
+        questHistory: extensionSettings.questHistory || [],
         queuedDiceRoll: queuedDiceRoll,
         quests: extensionSettings.quests,
         lastGeneratedData: lastGeneratedData,
@@ -1048,10 +1021,11 @@ export function loadChatData() {
     extensionSettings.encounterLogs = Array.isArray(savedData?.encounterLogs) ? JSON.parse(JSON.stringify(savedData.encounterLogs)) : [];
     extensionSettings.statBlocks = savedData?.statBlocks && typeof savedData.statBlocks === 'object' ? JSON.parse(JSON.stringify(savedData.statBlocks)) : {};
     extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
+    extensionSettings.questHistory = Array.isArray(savedData?.questHistory) ? savedData.questHistory.map(h => ({ ...h })) : [];
 
     // Restore quests
     if (savedData?.quests) {
-        extensionSettings.quests = { ...savedData.quests };
+        extensionSettings.quests = normalizeQuestsValue(savedData.quests);
     } else {
         // Initialize with defaults if not present
         extensionSettings.quests = {

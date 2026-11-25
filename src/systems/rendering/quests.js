@@ -8,6 +8,7 @@ import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { isItemLocked, setItemLock } from '../generation/lockManager.js';
 import { i18n } from '../../core/i18n.js';
 import { completeQuest, markQuestResolved } from '../features/experience.js';
+import { normalizeQuest, normalizeQuests, toStored } from '../mechanics/quests.js';
 
 /**
  * Syncs the current extensionSettings.quests to committedTrackerData.userStats
@@ -23,7 +24,7 @@ function syncQuestsToCommittedData() {
             const jsonData = JSON.parse(currentData);
             if (jsonData && typeof jsonData === 'object') {
                 // Update quests in the JSON data
-                jsonData.quests = extensionSettings.quests || { main: 'None', optional: [] };
+                jsonData.quests = toStored(normalizeQuests(extensionSettings.quests));
                 const updatedJSON = JSON.stringify(jsonData, null, 2);
                 committedTrackerData.userStats = updatedJSON;
                 lastGeneratedData.userStats = updatedJSON;
@@ -32,12 +33,6 @@ function syncQuestsToCommittedData() {
             console.warn('[RPG Quests] Failed to sync quests to committed data:', e);
         }
     }
-}
-
-/** Plain title of a quest value (which may be a locked {value} wrapper). */
-function questTitleOf(quest) {
-    while (quest && typeof quest === 'object' && quest.value !== undefined) quest = quest.value;
-    return typeof quest === 'string' && quest !== 'None' ? quest : '';
 }
 
 /**
@@ -89,74 +84,96 @@ export function renderQuestsSubTabs(activeTab = 'main') {
     `;
 }
 
+/* ---------------------------------------------------------------------------
+   Quests are { name, description, steps: [{ text, done }] } (mechanics/quests.js).
+   --------------------------------------------------------------------------- */
+
+function t(key, fallback) {
+    return i18n.getTranslation(key) || fallback;
+}
+
+/** The quest at main / optional[index] (normalized), or null. */
+function getQuest(field, index) {
+    const quests = extensionSettings.quests || {};
+    return normalizeQuest(field === 'main' ? quests.main : (quests.optional || [])[index]);
+}
+
+/** Writes a quest back (null removes it) and syncs it to the data the AI sees. */
+function setQuest(field, index, quest) {
+    const quests = normalizeQuests(extensionSettings.quests);
+    if (field === 'main') {
+        quests.main = quest;
+    } else if (quest) {
+        quests.optional[index] = quest;
+    } else {
+        quests.optional.splice(index, 1);
+    }
+    extensionSettings.quests = toStored(quests);
+    syncQuestsToCommittedData();
+    saveSettings();
+    saveChatData();
+}
+
+function renderQuestCard(quest, field, index = 0) {
+    const lockPath = field === 'main' ? 'quests.main' : `quests.optional[${index}]`;
+    const done = quest.steps.filter(s => s.done).length;
+    const steps = quest.steps.map((step, i) => `
+        <li class="rpg-quest-step${step.done ? ' done' : ''}">
+            <button type="button" class="rpg-quest-step-toggle" data-action="toggle-step" data-step="${i}" title="${escapeHtml(step.done ? t('quests.stepUndo', 'Mark not done') : t('quests.stepDone', 'Mark done'))}">
+                <i class="fa-${step.done ? 'solid fa-square-check' : 'regular fa-square'}"></i>
+            </button>
+            <span class="rpg-quest-step-text rpg-editable" contenteditable="true" data-edit-step="${i}">${escapeHtml(step.text)}</span>
+            <button type="button" class="rpg-quest-step-remove" data-action="remove-step" data-step="${i}" title="${escapeHtml(t('quests.removeStep', 'Remove step'))}"><i class="fa-solid fa-xmark"></i></button>
+        </li>`).join('');
+    return `
+        <div class="rpg-quest-item rpg-quest-card" data-field="${field}" data-index="${index}">
+            <div class="rpg-quest-card-head">
+                ${getLockIconHtml('userStats', lockPath)}
+                <div class="rpg-quest-title rpg-editable" contenteditable="true" data-edit="name" title="${escapeHtml(t('quests.nameHint', 'The quest\'s name is how it is recognised between updates'))}">${escapeHtml(quest.name)}</div>
+                ${quest.steps.length ? `<span class="rpg-quest-progress">${done}/${quest.steps.length}</span>` : ''}
+                <div class="rpg-quest-actions">
+                    <button class="rpg-quest-complete" data-action="complete-quest" title="${escapeHtml(t('quests.completeQuestTitle', 'Complete quest (gain EXP)'))}"><i class="fa-solid fa-check"></i></button>
+                    <button class="rpg-quest-remove" data-action="remove-quest" title="${escapeHtml(t('quests.removeQuestTitle', 'Remove quest (no EXP)'))}"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            </div>
+            <div class="rpg-quest-desc rpg-editable" contenteditable="true" data-edit="description" data-placeholder="${escapeHtml(t('quests.descriptionPlaceholder', 'Add a description...'))}">${escapeHtml(quest.description)}</div>
+            ${steps ? `<ul class="rpg-quest-steps">${steps}</ul>` : ''}
+            <button type="button" class="rpg-quest-add-step" data-action="add-step"><i class="fa-solid fa-plus"></i> ${escapeHtml(t('quests.addStep', 'Step'))}</button>
+        </div>`;
+}
+
+function renderAddForm(field) {
+    return `
+        <div class="rpg-inline-form" id="rpg-add-quest-form-${field}" style="display: none;">
+            <input type="text" class="rpg-inline-input" id="rpg-new-quest-${field}" maxlength="120" placeholder="${escapeHtml(field === 'main' ? t('quests.main.addQuestPlaceholder', 'Quest name...') : t('quests.optional.addQuestPlaceholder', 'Quest name...'))}" />
+            <input type="text" class="rpg-inline-input" id="rpg-new-quest-desc-${field}" maxlength="600" placeholder="${escapeHtml(t('quests.descriptionPlaceholder', 'Add a description...'))}" />
+            <div class="rpg-inline-buttons">
+                <button class="rpg-inline-btn rpg-inline-cancel" data-action="cancel-add-quest" data-field="${field}"><i class="fa-solid fa-times"></i> ${escapeHtml(t('global.cancel', 'Cancel'))}</button>
+                <button class="rpg-inline-btn rpg-inline-save" data-action="save-add-quest" data-field="${field}"><i class="fa-solid fa-check"></i> ${escapeHtml(t('global.add', 'Add'))}</button>
+            </div>
+        </div>`;
+}
+
 /**
  * Renders the main quest view
- * @param {string} mainQuest - Current main quest title
- * @returns {string} HTML for main quest view
+ * @param {object|string} mainQuest - the main quest (any stored shape)
  */
 export function renderMainQuestView(mainQuest) {
-    const questDisplay = (mainQuest && mainQuest !== 'None') ? mainQuest : '';
-    const hasQuest = questDisplay.length > 0;
-    const mainTitle = i18n.getTranslation('quests.main.title') || 'Main Quests';
-    const mainHint = i18n.getTranslation('quests.main.hint') || 'The main quest represents your primary objective in the story.';
-    const mainEmptyText = i18n.getTranslation('quests.main.empty') || 'No active main quests';
-    const addQuestButtonText = i18n.getTranslation('quests.main.addQuestButton') || 'Add Quest';
-    const addQuestPlaceholderText = i18n.getTranslation('quests.main.addQuestPlaceholder') || 'Enter main quest title...';
-
+    const quest = normalizeQuest(mainQuest);
     return `
         <div class="rpg-quest-section">
             <div class="rpg-quest-header">
-                <h3 class="rpg-quest-section-title">${mainTitle}</h3>
-                ${!hasQuest ? `<button class="rpg-add-quest-btn" data-action="add-quest" data-field="main" title="${i18n.getTranslation('quests.main.addQuestTitle') || 'Add main quests'}">
-                    <i class="fa-solid fa-plus"></i> ${addQuestButtonText}
+                <h3 class="rpg-quest-section-title">${escapeHtml(t('quests.main.title', 'Main Quest'))}</h3>
+                ${!quest ? `<button class="rpg-add-quest-btn" data-action="add-quest" data-field="main" title="${escapeHtml(t('quests.main.addQuestTitle', 'Add main quest'))}">
+                    <i class="fa-solid fa-plus"></i> ${escapeHtml(t('quests.main.addQuestButton', 'Add Quest'))}
                 </button>` : ''}
             </div>
             <div class="rpg-quest-content">
-                ${hasQuest ? `
-                    <div class="rpg-inline-form" id="rpg-edit-quest-form-main" style="display: none;">
-                        <input type="text" class="rpg-inline-input" id="rpg-edit-quest-main" value="${escapeHtml(questDisplay)}" />
-                        <div class="rpg-inline-buttons">
-                            <button class="rpg-inline-btn rpg-inline-cancel" data-action="cancel-edit-quest" data-field="main">
-                                <i class="fa-solid fa-times"></i> ${i18n.getTranslation('global.cancel') || 'Cancel'}
-                            </button>
-                            <button class="rpg-inline-btn rpg-inline-save" data-action="save-edit-quest" data-field="main">
-                                <i class="fa-solid fa-check"></i> ${i18n.getTranslation('global.save') || 'Save'}
-                            </button>
-                        </div>
-                    </div>
-                    <div class="rpg-quest-item" data-field="main">
-                        ${getLockIconHtml('userStats', 'quests.main')}
-                        <div class="rpg-quest-title">${escapeHtml(questDisplay)}</div>
-                        <div class="rpg-quest-actions">
-                            <button class="rpg-quest-edit" data-action="edit-quest" data-field="main" title="${i18n.getTranslation('quests.editQuestTitle') || 'Edit quest'}">
-                                <i class="fa-solid fa-edit"></i>
-                            </button>
-                            <button class="rpg-quest-complete" data-action="complete-quest" data-field="main" title="${i18n.getTranslation('quests.completeQuestTitle') || 'Complete quest (gain EXP)'}">
-                                <i class="fa-solid fa-check"></i>
-                            </button>
-                            <button class="rpg-quest-remove" data-action="remove-quest" data-field="main" title="${i18n.getTranslation('quests.removeQuestTitle') || 'Remove quest (no EXP)'}">
-                                <i class="fa-solid fa-xmark"></i>
-                            </button>
-                        </div>
-                    </div>
-                ` : `
-                    <div class="rpg-inline-form" id="rpg-add-quest-form-main" style="display: none;">
-                        <input type="text" class="rpg-inline-input" id="rpg-new-quest-main" placeholder="${addQuestPlaceholderText}" />
-                        <div class="rpg-inline-actions">
-                            <button class="rpg-inline-btn rpg-inline-cancel" data-action="cancel-add-quest" data-field="main">
-                                <i class="fa-solid fa-times"></i> ${i18n.getTranslation('global.cancel') || 'Cancel'}
-                            </button>
-                            <button class="rpg-inline-btn rpg-inline-save" data-action="save-add-quest" data-field="main">
-                                <i class="fa-solid fa-check"></i> ${i18n.getTranslation('global.add') || 'Add'}
-                            </button>
-                        </div>
-                    </div>
-                    <div class="rpg-quest-empty">${mainEmptyText}</div>
-                `}
+                ${quest ? renderQuestCard(quest, 'main') : `${renderAddForm('main')}<div class="rpg-quest-empty">${escapeHtml(t('quests.main.empty', 'No active main quest'))}</div>`}
             </div>
             <div class="rpg-quest-hint">
                 <i class="fa-solid fa-lightbulb"></i>
-                ${mainHint}
+                ${escapeHtml(t('quests.main.hint', 'The main quest represents your primary objective in the story.'))}
             </div>
         </div>
     `;
@@ -164,64 +181,27 @@ export function renderMainQuestView(mainQuest) {
 
 /**
  * Renders the optional quests view
- * @param {string[]} optionalQuests - Array of optional quest titles
- * @returns {string} HTML for optional quests view
+ * @param {Array} optionalQuests - optional quests (any stored shape)
  */
 export function renderOptionalQuestsView(optionalQuests) {
-    const quests = optionalQuests.filter(q => q && q !== 'None');
-    const optionalTitle = i18n.getTranslation('quests.optional.title') || 'Optional Quests';
-    const optionalHint = i18n.getTranslation('quests.optional.hint') || 'Optional quests are side objectives that complement your main story.';
-    const optionalEmptyText = i18n.getTranslation('quests.optional.empty') || 'No active optional quests';
-    const addQuestButtonText = i18n.getTranslation('quests.optional.addQuestButton') || 'Add Quest';
-    const addQuestPlaceholderText = i18n.getTranslation('quests.optional.addQuestPlaceholder') || 'Enter optional quest title...';
-
-    let questsHtml = '';
-    if (quests.length === 0) {
-        questsHtml = `<div class="rpg-quest-empty">${optionalEmptyText}</div>`;
-    } else {
-        questsHtml = quests.map((quest, index) => {
-            return `
-            <div class="rpg-quest-item" data-field="optional" data-index="${index}">
-                ${getLockIconHtml('userStats', `quests.optional[${index}]`)}
-                <div class="rpg-quest-title rpg-editable" contenteditable="true" data-field="optional" data-index="${index}" title="${i18n.getTranslation('global.clickToEdit') || 'Click to edit'}">${escapeHtml(quest)}</div>
-                <div class="rpg-quest-actions">
-                    <button class="rpg-quest-complete" data-action="complete-quest" data-field="optional" data-index="${index}" title="${i18n.getTranslation('quests.completeQuestTitle') || 'Complete quest (gain EXP)'}">
-                        <i class="fa-solid fa-check"></i>
-                    </button>
-                    <button class="rpg-quest-remove" data-action="remove-quest" data-field="optional" data-index="${index}" title="${i18n.getTranslation('quests.removeQuestTitle') || 'Remove quest (no EXP)'}">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
-                </div>
-            </div>
-        `}).join('');
-    }
-
+    const quests = (optionalQuests || []).map(normalizeQuest);
+    const cards = quests.map((q, i) => (q ? renderQuestCard(q, 'optional', i) : '')).join('');
     return `
         <div class="rpg-quest-section">
             <div class="rpg-quest-header">
-                <h3 class="rpg-quest-section-title">${optionalTitle}</h3>
-                <button class="rpg-add-quest-btn" data-action="add-quest" data-field="optional" title="${i18n.getTranslation('quests.optional.addQuestTitle') || 'Add optional quest'}">
-                    <i class="fa-solid fa-plus"></i> ${addQuestButtonText}
+                <h3 class="rpg-quest-section-title">${escapeHtml(t('quests.optional.title', 'Optional Quests'))}</h3>
+                <button class="rpg-add-quest-btn" data-action="add-quest" data-field="optional" title="${escapeHtml(t('quests.optional.addQuestTitle', 'Add optional quest'))}">
+                    <i class="fa-solid fa-plus"></i> ${escapeHtml(t('quests.optional.addQuestButton', 'Add Quest'))}
                 </button>
             </div>
             <div class="rpg-quest-content">
-                <div class="rpg-inline-form" id="rpg-add-quest-form-optional" style="display: none;">
-                    <input type="text" class="rpg-inline-input" id="rpg-new-quest-optional" placeholder="${addQuestPlaceholderText}" />
-                    <div class="rpg-inline-buttons">
-                        <button class="rpg-inline-btn rpg-inline-cancel" data-action="cancel-add-quest" data-field="optional">
-                            <i class="fa-solid fa-times"></i> ${i18n.getTranslation('global.cancel') || 'Cancel'}
-                        </button>
-                        <button class="rpg-inline-btn rpg-inline-save" data-action="save-add-quest" data-field="optional">
-                            <i class="fa-solid fa-check"></i> ${i18n.getTranslation('global.add') || 'Add'}
-                        </button>
-                    </div>
-                </div>
+                ${renderAddForm('optional')}
                 <div class="rpg-quest-list">
-                    ${questsHtml}
+                    ${cards || `<div class="rpg-quest-empty">${escapeHtml(t('quests.optional.empty', 'No active optional quests'))}</div>`}
                 </div>
                 <div class="rpg-quest-hint">
                     <i class="fa-solid fa-info-circle"></i>
-                    ${optionalHint}
+                    ${escapeHtml(t('quests.optional.hint', 'Optional quests are side objectives that complement your main story.'))}
                 </div>
             </div>
         </div>
@@ -235,172 +215,117 @@ export function renderQuests() {
     if (!extensionSettings.showQuests || !$questsContainer) {
         return;
     }
-
-    // Get current sub-tab from container or default to 'main'
     const activeSubTab = $questsContainer.data('active-subtab') || 'main';
-
-    // Get quests data - extract value if it's a locked object
-    let mainQuest = extensionSettings.quests.main || 'None';
-    // Recursively extract value if it's nested objects
-    while (typeof mainQuest === 'object' && mainQuest.value !== undefined) {
-        mainQuest = mainQuest.value;
-    }
-    const optionalQuests = extensionSettings.quests.optional || [];
-
-    // Build HTML
+    const quests = extensionSettings.quests || {};
     let html = '<div class="rpg-quests-wrapper">';
     html += renderQuestsSubTabs(activeSubTab);
-
-    // Render active sub-tab
     html += '<div class="rpg-quests-panels">';
-    if (activeSubTab === 'main') {
-        html += renderMainQuestView(mainQuest);
-    } else {
-        html += renderOptionalQuestsView(optionalQuests);
-    }
+    html += activeSubTab === 'main' ? renderMainQuestView(quests.main) : renderOptionalQuestsView(quests.optional || []);
     html += '</div></div>';
-
     $questsContainer.html(html);
-
-    // Attach event handlers
     attachQuestEventHandlers();
+}
+
+function cardOf(el) {
+    const $card = $(el).closest('.rpg-quest-card');
+    return { field: $card.data('field'), index: Number($card.data('index')) || 0 };
 }
 
 /**
  * Attach event handlers for quest interactions
  */
 function attachQuestEventHandlers() {
-    // Sub-tab switching
     $questsContainer.find('.rpg-quests-subtab').on('click', function() {
-        const tab = $(this).data('tab');
-        $questsContainer.data('active-subtab', tab);
+        $questsContainer.data('active-subtab', $(this).data('tab'));
         renderQuests();
     });
 
-    // Add quest button
     $questsContainer.find('[data-action="add-quest"]').on('click', function() {
         const field = $(this).data('field');
         $(`#rpg-add-quest-form-${field}`).show();
         $(`#rpg-new-quest-${field}`).focus();
     });
-
-    // Cancel add quest
     $questsContainer.find('[data-action="cancel-add-quest"]').on('click', function() {
         const field = $(this).data('field');
         $(`#rpg-add-quest-form-${field}`).hide();
-        $(`#rpg-new-quest-${field}`).val('');
+        $(`#rpg-new-quest-${field}, #rpg-new-quest-desc-${field}`).val('');
     });
-
-    // Save add quest
     $questsContainer.find('[data-action="save-add-quest"]').on('click', function() {
         const field = $(this).data('field');
-        const input = $(`#rpg-new-quest-${field}`);
-        const questTitle = input.val().trim();
-
-        if (questTitle) {
-            if (field === 'main') {
-                extensionSettings.quests.main = questTitle;
-            } else {
-                if (!extensionSettings.quests.optional) {
-                    extensionSettings.quests.optional = [];
-                }
-                extensionSettings.quests.optional.push(questTitle);
-            }
-            // Sync quest changes to committedTrackerData so AI sees the addition
-            syncQuestsToCommittedData();
-            saveSettings();
-            saveChatData();
-            renderQuests();
-        }
+        const quest = normalizeQuest({ name: $(`#rpg-new-quest-${field}`).val(), description: $(`#rpg-new-quest-desc-${field}`).val(), steps: [] });
+        if (!quest) return;
+        const index = field === 'main' ? 0 : normalizeQuests(extensionSettings.quests).optional.length;
+        setQuest(field, index, quest);
+        renderQuests();
+    });
+    $questsContainer.find('.rpg-inline-input').on('keypress', function(e) {
+        if (e.which === 13) $(this).closest('.rpg-inline-form').find('[data-action="save-add-quest"]').click();
     });
 
-    // Edit quest (main only)
-    $questsContainer.find('[data-action="edit-quest"]').on('click', function() {
-        const field = $(this).data('field');
-        $(`#rpg-edit-quest-form-${field}`).show();
-        $('.rpg-quest-item[data-field="main"]').hide();
-        $(`#rpg-edit-quest-${field}`).focus();
-    });
-
-    // Cancel edit quest
-    $questsContainer.find('[data-action="cancel-edit-quest"]').on('click', function() {
-        const field = $(this).data('field');
-        $(`#rpg-edit-quest-form-${field}`).hide();
-        $('.rpg-quest-item[data-field="main"]').show();
-    });
-
-    // Save edit quest
-    $questsContainer.find('[data-action="save-edit-quest"]').on('click', function() {
-        const field = $(this).data('field');
-        const input = $(`#rpg-edit-quest-${field}`);
-        const questTitle = input.val().trim();
-
-        if (questTitle) {
-            extensionSettings.quests.main = questTitle;
-            // Sync quest changes to committedTrackerData so AI sees the edit
-            syncQuestsToCommittedData();
-            saveSettings();
-            saveChatData();
-            renderQuests();
-        }
-    });
-
-    // Complete (gain EXP) or remove (no EXP) a quest
+    // Complete (gain EXP) or remove (no EXP)
     $questsContainer.find('[data-action="remove-quest"], [data-action="complete-quest"]').on('click', function() {
-        const field = $(this).data('field');
-        const index = $(this).data('index');
-
-        if ($(this).data('action') === 'complete-quest') {
-            const title = field === 'main' ? questTitleOf(extensionSettings.quests.main) : questTitleOf(extensionSettings.quests.optional[index]);
-            completeQuest(field === 'main' ? 'main' : 'side', title);
-        } else {
-            markQuestResolved(field === 'main' ? questTitleOf(extensionSettings.quests.main) : questTitleOf(extensionSettings.quests.optional[index]));
-        }
-
-        if (field === 'main') {
-            extensionSettings.quests.main = 'None';
-        } else {
-            extensionSettings.quests.optional.splice(index, 1);
-        }
-        // Sync quest changes to committedTrackerData so AI sees the removal
-        syncQuestsToCommittedData();
-        saveSettings();
-        saveChatData();
+        const { field, index } = cardOf(this);
+        const quest = getQuest(field, index);
+        if (!quest) return;
+        if ($(this).data('action') === 'complete-quest') completeQuest(field === 'main' ? 'main' : 'side', quest.name);
+        else markQuestResolved(quest.name, 'abandoned');
+        setQuest(field, index, null);
         renderQuests();
     });
 
-    // Inline editing for optional quests
-    $questsContainer.find('.rpg-quest-title.rpg-editable').on('blur', function() {
-        const $this = $(this);
-        const field = $this.data('field');
-        const index = $this.data('index');
-        const newTitle = $this.text().trim();
-
-        if (newTitle && field === 'optional' && index !== undefined) {
-            extensionSettings.quests.optional[index] = newTitle;
-            // Sync quest changes to committedTrackerData so AI sees the edit
-            syncQuestsToCommittedData();
-            saveSettings();
-            saveChatData();
-        }
+    // Name and description: edited in place
+    $questsContainer.find('.rpg-quest-card [data-edit]').on('blur', function() {
+        const { field, index } = cardOf(this);
+        const quest = getQuest(field, index);
+        if (!quest) return;
+        const key = $(this).data('edit');
+        const value = $(this).text().trim();
+        if (key === 'name' && !value) { renderQuests(); return; }
+        if (quest[key] === value) return;
+        quest[key] = value;
+        setQuest(field, index, normalizeQuest(quest));
+    }).on('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); $(this).blur(); }
     });
 
-    // Enter key to save in forms
-    $questsContainer.find('.rpg-inline-input').on('keypress', function(e) {
-        if (e.which === 13) {
-            const field = $(this).attr('id').includes('edit') ?
-                $(this).attr('id').replace('rpg-edit-quest-', '') :
-                $(this).attr('id').replace('rpg-new-quest-', '');
-
-            if ($(this).attr('id').includes('edit')) {
-                $(`[data-action="save-edit-quest"][data-field="${field}"]`).click();
-            } else {
-                $(`[data-action="save-add-quest"][data-field="${field}"]`).click();
-            }
+    // Steps
+    $questsContainer.find('[data-action="toggle-step"], [data-action="remove-step"], [data-action="add-step"]').on('click', function() {
+        const { field, index } = cardOf(this);
+        const quest = getQuest(field, index);
+        if (!quest) return;
+        const step = Number($(this).data('step'));
+        const action = $(this).data('action');
+        if (action === 'toggle-step') quest.steps[step].done = !quest.steps[step].done;
+        else if (action === 'remove-step') quest.steps.splice(step, 1);
+        else quest.steps.push({ text: t('quests.newStep', 'New step'), done: false });
+        setQuest(field, index, quest);
+        renderQuests();
+        if (action === 'add-step') {
+            const $last = $questsContainer.find(`.rpg-quest-card[data-field="${field}"][data-index="${index}"] [data-edit-step]`).last();
+            $last.trigger('focus');
+            const range = document.createRange();
+            range.selectNodeContents($last[0]);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
         }
     });
+    $questsContainer.find('[data-edit-step]').on('blur', function() {
+        const { field, index } = cardOf(this);
+        const quest = getQuest(field, index);
+        if (!quest) return;
+        const step = Number($(this).data('edit-step'));
+        const value = $(this).text().trim();
+        if (!value) quest.steps.splice(step, 1);
+        else if (quest.steps[step].text === value) return;
+        else quest.steps[step].text = value;
+        setQuest(field, index, quest);
+        if (!value) renderQuests();
+    }).on('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); $(this).blur(); }
+    });
 
-    // Add event listener for section lock icon clicks (support both click and touch)
+    // Lock icons (click and touch)
     $questsContainer.find('.rpg-section-lock-icon').on('click touchend', function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -408,20 +333,10 @@ function attachQuestEventHandlers() {
         const trackerType = $icon.data('tracker');
         const itemPath = $icon.data('path');
         const currentlyLocked = isItemLocked(trackerType, itemPath);
-
-        // Toggle lock state
         setItemLock(trackerType, itemPath, !currentlyLocked);
-
-        // Update icon
-        const newIcon = !currentlyLocked ? '🔒' : '🔓';
-        const newTitle = !currentlyLocked ? 'Locked' : 'Unlocked';
-        $icon.text(newIcon);
-        $icon.attr('title', newTitle);
-
-        // Toggle 'locked' class for persistent visibility
+        $icon.text(!currentlyLocked ? '🔒' : '🔓');
+        $icon.attr('title', !currentlyLocked ? 'Locked' : 'Unlocked');
         $icon.toggleClass('locked', !currentlyLocked);
-
-        // Save settings
         saveSettings();
     });
 }
