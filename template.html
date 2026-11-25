@@ -629,7 +629,7 @@
                 <h4 data-i18n-key="template.settingsModal.progressionTitle"><i class="fa-solid fa-arrow-up-right-dots"
                         aria-hidden="true"></i> Progression</h4>
                 <small class="rpg-note" data-i18n-key="template.settingsModal.progression.note">
-                    Rewards are a percentage of the current EXP bar, so levelling keeps the same pace at every level. Quest rewards are rolled between the min and max. An enemy gives the base % × the factor for each level it is above you (or ÷ for each level below).
+                    Rewards are a percentage of the current EXP bar, so levelling keeps the same pace at every level. Quest rewards are rolled between the min and max. An enemy gives the base % × the factor for each level it is above you (or ÷ for each level below). The fast start multiplies every reward at level 1 and fades out evenly (×2 over 4 levels: ×2, ×1.75, ×1.5, ×1.25, then ×1), so the first levels come quickly.
                 </small>
                 <div class="rpg-progression-grid">
                     <label class="rpg-progression-field">
@@ -659,6 +659,14 @@
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.progression.progEnemyFactor">Per level of difference, ×</span>
                         <input type="number" class="rpg-input" data-progression="enemyLevelFactor" min="1" step="0.05" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.earlyBoost">Fast start: EXP × at level 1</span>
+                        <input type="number" class="rpg-input" data-progression="earlyBoost" min="1" max="10" step="0.25" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.earlyLevels">Fast start: fades over (levels)</span>
+                        <input type="number" class="rpg-input" data-progression="earlyLevels" min="0" max="50" step="1" />
                     </label>
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.progression.progPointsPerLevel">Character points per level</span>
@@ -698,10 +706,26 @@
                 <small class="rpg-note" data-i18n-key="template.settingsModal.sheet.note">
                     A level 1 character is built on the starting pool, plus the character points per level above. Abilities above the Active Point guide (base + per level × level) get a warning. Combat values (HP, END, defences, speed) are derived from the three attributes chosen below.
                 </small>
+                <div class="rpg-setting-row">
+                    <label for="rpg-power-preset" data-i18n-key="template.settingsModal.sheet.powerPreset">Power level:</label>
+                    <select id="rpg-power-preset" class="rpg-input" data-combat="powerPreset">
+                        <option value="gritty" data-i18n-key="template.settingsModal.sheet.presetGritty">Gritty (50 CP)</option>
+                        <option value="heroic" data-i18n-key="template.settingsModal.sheet.presetHeroic">Heroic (100 CP)</option>
+                        <option value="legendary" data-i18n-key="template.settingsModal.sheet.presetLegendary">Legendary (150 CP)</option>
+                        <option value="custom" data-i18n-key="template.settingsModal.sheet.presetCustom">Custom</option>
+                    </select>
+                </div>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.sheet.powerPresetNote">
+                    How strong your character starts compared with the world. Gritty: most things can kill you and fights are best avoided. Heroic: an ordinary foe is easy and an elite is a fair fight, for a solo hero or a small party. Legendary: few things are a match for you. Enemies are always built on the world pool, so this only changes your side. Editing the starting pool or AP guide makes it Custom.
+                </small>
                 <div class="rpg-progression-grid">
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.sheet.startingPool">Starting pool (CP)</span>
                         <input type="number" class="rpg-input" data-combat="startingPool" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.sheet.worldPool">World pool (CP, enemies)</span>
+                        <input type="number" class="rpg-input" data-combat="worldPool" min="0" step="1" />
                     </label>
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.sheet.apCapBase">AP guide, base</span>
@@ -761,7 +785,7 @@
                 </div>
 
                 <small class="rpg-note" data-i18n-key="template.settingsModal.sheet.tiersNote">
-                    Enemy tiers: budget × the level budget, and × HP (also × EXP). Defaults were tuned by simulation; see docs/COMBAT_DESIGN.md §7.
+                    Enemy tiers: budget × the world budget (world pool + points per level), and × HP (also × EXP). Defaults were tuned by simulation; see docs/COMBAT_DESIGN.md §7.
                 </small>
                 <div class="rpg-progression-grid rpg-tier-grid">
                     <span></span>

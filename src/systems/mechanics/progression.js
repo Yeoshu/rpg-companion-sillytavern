@@ -25,6 +25,10 @@ export const DEFAULT_PROGRESSION = Object.freeze({
      * 1.3 → +1 level ×1.3, +3 ×2.2, +5 ×3.7; −1 ×0.77, −3 ×0.46, −5 ×0.27.
      */
     enemyLevelFactor: 1.3,
+    /** Fast start: EXP rewards × this at level 1, fading to ×1 ... */
+    earlyBoost: 2,
+    /** ... over this many levels (×2 over 4: level 1 ×2, 2 ×1.75, 3 ×1.5, 4 ×1.25, then ×1). */
+    earlyLevels: 4,
     /** Character points gained per level. */
     pointsPerLevel: 5,
     /** Cost in character points of +1 to an attribute. */
@@ -49,6 +53,8 @@ export function normalizeProgression(settings = {}) {
         sideQuestMax: num(settings.sideQuestMax, d.sideQuestMax),
         enemyBase: num(settings.enemyBase, d.enemyBase),
         enemyLevelFactor: num(settings.enemyLevelFactor, d.enemyLevelFactor, 1),
+        earlyBoost: Math.min(10, num(settings.earlyBoost, d.earlyBoost, 1)),
+        earlyLevels: Math.min(50, Math.floor(num(settings.earlyLevels, d.earlyLevels))),
         pointsPerLevel: Math.floor(num(settings.pointsPerLevel, d.pointsPerLevel)),
         attributeCost: Math.max(1, Math.floor(num(settings.attributeCost, d.attributeCost, 1))),
         skillCost: Math.max(1, Math.floor(num(settings.skillCost, d.skillCost, 1)))
@@ -66,10 +72,19 @@ export function expToNextLevel(level, settings = DEFAULT_PROGRESSION) {
     return Math.max(1, Math.round(settings.expBase * Math.max(1, Math.floor(level) || 1)));
 }
 
-/** Converts a percentage of the bar to whole EXP (at least 1 for a positive %). */
+/** Fast-start multiplier on EXP rewards at a level (1 once the early levels are past). */
+export function earlyMultiplier(level, settings = DEFAULT_PROGRESSION) {
+    const boost = Number(settings.earlyBoost ?? 1);
+    const levels = Math.floor(Number(settings.earlyLevels ?? 0));
+    const l = Math.max(1, Math.floor(level) || 1);
+    if (!(boost > 1) || levels <= 0 || l > levels) return 1;
+    return 1 + (boost - 1) * (levels - l + 1) / levels;
+}
+
+/** Converts a percentage of the bar to whole EXP (at least 1 for a positive %), with the fast start. */
 function percentOfBar(percent, level, settings) {
     if (percent <= 0) return 0;
-    return Math.max(1, Math.round(expToNextLevel(level, settings) * percent / 100));
+    return Math.max(1, Math.round(expToNextLevel(level, settings) * percent * earlyMultiplier(level, settings) / 100));
 }
 
 /**

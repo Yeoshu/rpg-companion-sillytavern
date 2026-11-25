@@ -1127,6 +1127,12 @@ input[type="color"]:is(#rpg-custom-bg, #rpg-custom-accent, #rpg-custom-text, #rp
     background: var(--SmartThemeQuoteColor);
 }
 
+.rpg-sheet-power select {
+    width: auto;
+    margin: 0;
+}
+
+.rpg-sheet-power,
 .rpg-sheet-bonus {
     display: flex;
     align-items: center;

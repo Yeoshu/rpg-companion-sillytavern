@@ -326,8 +326,9 @@ segments where each combatant acts, so you can see who's coming up.
 
     Budget at level L = starting pool + CP per level × (L − 1)
 
-- Default starting pool: **50 CP**. That's enough for a couple of good
-  attributes, two skills and two or three abilities.
+- Starting pool: from the **power level** (see "Power level" below):
+  Gritty 50, Heroic 100 (default), Legendary 150. Enemies use the separate
+  **world pool** (50) instead: `worldBudget` in `costs.js`.
 - The sheet shows **spent / budget**. Unspent points replace today's CP
   counter, which becomes a computed number.
 - Levelling still gives the CP per level, and spending works as now. In
@@ -336,7 +337,9 @@ segments where each combatant acts, so you can see who's coming up.
   existing character above budget keeps everything.
 
 **Active Point cap:** a warning when one ability's AP exceeds
-**25 + 5 × level** (30 at level 1: a 6d6 attack). It's a guide, not a limit.
+**base + 5 × level**, the base from the power level (Gritty 25: 30 at level
+1, a 6d6 attack; Heroic 35: 40, 8d6; Legendary 45: 50, 10d6). It's a guide,
+not a limit.
 
 ### Abilities are priced as a pool
 
@@ -625,6 +628,43 @@ just that many copies.
 | 6 goblins (minion) | 0% | 1 fighting, 3 waiting, 2 left out, ~70% |
 | 2 standard bandits | ~3% | 1 fighting, 1 left out, ~80% |
 | goblin chief (elite) + 4 goblins | 0% | the chief alone, ~40–50% |
+
+## Power level
+
+The tier budgets in §7 were tuned for a 50 CP character, which turned out
+to feel weak at level 1: one ordinary enemy at 77%, two at 3%, an elite at
+45%. Fine for a world where fights are dangerous, too harsh for a solo
+hero. So the player's starting pool and the world's are separate settings:
+
+- **World pool** (`worldPool`, 50): enemies and NPC allies are built on
+  `worldPool + points per level × (level − 1)`, times their tier.
+- **Power level** (`powerPreset`): sets the player's starting pool and the
+  AP guide base. Editing either by hand makes it Custom.
+
+| Preset | Starting CP | AP guide at level 1 |
+|---|---|---|
+| Gritty | 50 | 30 |
+| **Heroic** (default) | 100 | 40 |
+| Legendary | 150 | 50 |
+
+Simulated at level 1 against the default enemies (automatic tactics on
+both sides, 300 fights each):
+
+| Character | 1 standard | 2 standard | elite | boss | 3 minions | level 3 elite |
+|---|---|---|---|---|---|---|
+| Gritty 50 (the §7 example) | 77% | 3% | 45% | 1% | 23% | 9% |
+| Heroic 100, mixed (24 CP of skills, attack, heal, area) | 96% | 45% | 82% | 27% | 82% | 46% |
+| Heroic 100, all-in fighter | 100% | 93% | 100% | 88% | 99% | 96% |
+| Legendary 150, mixed | 100% | 100% | 100% | 96% | 100% | 99% |
+
+How a character spends the points matters a lot (pool pricing makes a
+focused attacker very strong), so the presets set the budget, not an exact
+difficulty. The encounter check ("Encounter difficulty") still catches fights
+that are too much.
+
+An existing install whose starting pool and AP guide were the old defaults
+(50 / 25) moves to Heroic (settings version 8), which leaves 50 CP unspent
+on existing characters; customised values become Custom.
 
 ## Decisions
 

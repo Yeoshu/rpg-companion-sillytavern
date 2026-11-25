@@ -498,9 +498,14 @@ async function initUI() {
         } else if ($(this).is('[data-combat-tier]')) {
             const [tier, key] = String($(this).data('combat-tier')).split('.');
             current.tiers[tier][key] = Number($(this).val());
+        } else if ($(this).data('combat') === 'powerPreset') {
+            current.powerPreset = $(this).val();
         } else {
+            const key = $(this).data('combat');
             const value = Number($(this).val());
-            current[$(this).data('combat')] = Number.isFinite(value) ? value : undefined;
+            current[key] = Number.isFinite(value) ? value : undefined;
+            // Your own starting pool or AP guide isn't a preset any more.
+            if (key === 'startingPool' || key === 'apCapBase') current.powerPreset = 'custom';
         }
         extensionSettings.combat = normalizeCombatSettings(current);
         fillCombatInputs();

@@ -97,8 +97,10 @@ export const defaultSettings = {
     npcTemplates: [], // Generic stat blocks ("Goblin") reusable in any chat
     encounterLogs: [], // Per-chat logs of the last fights (features/combatAftermath.js)
     combat: { // Combat tuning (see src/systems/mechanics/combat/catalog.js DEFAULT_COMBAT)
-        startingPool: 50,
-        apCapBase: 25,
+        powerPreset: 'heroic', // gritty | heroic | legendary | custom
+        startingPool: 100,
+        worldPool: 50,
+        apCapBase: 35,
         apCapPerLevel: 5,
         budgetTolerance: 1.1,
         equalSpeed: false,
@@ -119,6 +121,8 @@ export const defaultSettings = {
         sideQuestMax: 10,
         enemyBase: 5,
         enemyLevelFactor: 1.3,
+        earlyBoost: 2,
+        earlyLevels: 4,
         pointsPerLevel: 5,
         attributeCost: 1,
         skillCost: 2
