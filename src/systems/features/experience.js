@@ -13,6 +13,8 @@
 
 import { callGenericPopup, POPUP_TYPE, POPUP_RESULT } from '../../../../../../popup.js';
 import { getCombatSettings, sheetPoints } from './sheet.js';
+import { allStepsDone, diffQuests, normalizeQuest, normalizeQuests } from '../mechanics/quests.js';
+import { getContext } from '../../../../../../extensions.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
@@ -97,7 +99,7 @@ export function setExp(value) {
  * @param {string} title
  */
 export function completeQuest(kind, title) {
-    markQuestResolved(title);
+    markQuestResolved(title, 'completed');
     const amount = questReward(kind, getProgressState().level, getProgression());
     const label = kind === 'main' ? t('progression.mainQuestDone', 'Main quest complete') : t('progression.sideQuestDone', 'Side quest complete');
     return grantExp(amount, title ? `${label}: ${title}` : label);
@@ -130,74 +132,96 @@ export function encounterRewards(enemies, result) {
    --------------------------------------------------------------------------- */
 
 const MAX_RESOLVED = 200;
-
-function questTitle(quest) {
-    while (quest && typeof quest === 'object' && quest.value !== undefined) quest = quest.value;
-    const title = typeof quest === 'string' ? quest.trim() : '';
-    return title && title.toLowerCase() !== 'none' ? title : '';
-}
+const MAX_HISTORY = 50;
 
 function questKey(title) {
     return String(title || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+/** Plain name of a quest in any stored shape. */
+export function questName(quest) {
+    return normalizeQuest(quest)?.name || '';
+}
+
 /**
  * Remembers (per chat) that a quest has been dealt with, so the same quest
- * isn't asked about again on swipes or regenerations.
+ * isn't asked about again on swipes or regenerations. With an outcome
+ * ('completed' / 'abandoned') it's also listed in the tracker prompt for a
+ * while, so the AI doesn't create it again.
  */
-export function markQuestResolved(title) {
+export function markQuestResolved(title, outcome = null) {
     const key = questKey(title);
     if (!key) return;
     const list = Array.isArray(extensionSettings.resolvedQuests) ? extensionSettings.resolvedQuests : [];
     if (!list.includes(key)) list.push(key);
     extensionSettings.resolvedQuests = list.slice(-MAX_RESOLVED);
+    if (outcome) recordQuestOutcome(title, outcome);
+}
+
+/** Adds (or updates) a finished quest in this chat's quest history. */
+export function recordQuestOutcome(title, outcome) {
+    const name = String(title || '').trim();
+    if (!name) return;
+    const history = (Array.isArray(extensionSettings.questHistory) ? extensionSettings.questHistory : [])
+        .filter(h => questKey(h.name) !== questKey(name));
+    let at = 0;
+    try {
+        at = getContext()?.chat?.length || 0;
+    } catch { /* no chat */ }
+    history.push({ name, outcome, at });
+    extensionSettings.questHistory = history.slice(-MAX_HISTORY);
 }
 
 function isQuestResolved(title) {
     return Array.isArray(extensionSettings.resolvedQuests) && extensionSettings.resolvedQuests.includes(questKey(title));
 }
 
-/** The current quests as plain titles: { main: string, optional: string[] }. */
+/** The current quests (normalized copies), for comparing before/after an update. */
 export function snapshotQuests() {
-    const quests = extensionSettings.quests || {};
-    return {
-        main: questTitle(quests.main),
-        optional: (Array.isArray(quests.optional) ? quests.optional : []).map(questTitle).filter(Boolean)
-    };
+    return JSON.parse(JSON.stringify(normalizeQuests(extensionSettings.quests)));
 }
 
 /**
- * Quests present in `before` but missing from `after` (in either list),
- * skipping any already completed, removed or answered in this chat.
- * @returns {{ title: string, kind: 'main'|'side' }[]}
+ * Quests present in `before` but missing (by name) from `after`, skipping any
+ * already completed, removed or answered in this chat.
+ * @returns {{ title: string, kind: 'main'|'side', quest: object, likelyDone: boolean }[]}
  */
 export function findDroppedQuests(before, after) {
-    const remaining = new Set([after.main, ...after.optional].filter(Boolean).map(questKey));
-    const dropped = [];
     const seen = new Set();
-    const consider = (title, kind) => {
-        const key = questKey(title);
-        if (!key || remaining.has(key) || seen.has(key) || isQuestResolved(title)) return;
-        seen.add(key);
-        dropped.push({ title, kind });
-    };
-    consider(before.main, 'main');
-    before.optional.forEach(title => consider(title, 'side'));
-    return dropped;
+    return diffQuests(before, after).dropped
+        .filter(({ quest }) => {
+            const key = questKey(quest.name);
+            if (seen.has(key) || isQuestResolved(quest.name)) return false;
+            seen.add(key);
+            return true;
+        })
+        .map(({ kind, quest }) => ({ title: quest.name, kind, quest, likelyDone: allStepsDone(quest) }));
 }
 
 /**
  * Call after a new tracker update has been applied, with the quests from
- * before it. If the AI removed any quests, asks whether they were completed
- * and awards EXP for the ones that were. Doesn't block the caller.
+ * before it. Quests the AI marked completed, and quests it dropped, are
+ * offered in one dialog (completed ones pre-ticked) and EXP is awarded for
+ * the ticked ones. Doesn't block the caller.
  */
 export function reviewDroppedQuests(before) {
-    if (!extensionSettings.enabled || extensionSettings.askAboutDroppedQuests === false || !before) return;
-    const dropped = findDroppedQuests(before, snapshotQuests());
+    const justCompleted = (extensionSettings.questsJustCompleted || []).map(({ kind, quest }) => ({ title: quest.name, kind, quest, likelyDone: true, markedDone: true }));
+    extensionSettings.questsJustCompleted = [];
+    if (!extensionSettings.enabled || !before) return;
+    const ask = extensionSettings.askAboutDroppedQuests !== false;
+    const dropped = [
+        ...justCompleted.filter(q => !isQuestResolved(q.title)),
+        ...findDroppedQuests(before, snapshotQuests()).filter(q => !justCompleted.some(c => questKey(c.title) === questKey(q.title)))
+    ];
     if (!dropped.length) return;
     // Mark first so an overlapping update (swipe, regenerate) doesn't ask twice.
-    dropped.forEach(quest => markQuestResolved(quest.title));
+    dropped.forEach(quest => markQuestResolved(quest.title, quest.markedDone ? 'completed' : 'abandoned'));
     saveChatData();
+    if (!ask) {
+        // Not asking: quests the AI marked completed still count as completed.
+        dropped.filter(q => q.markedDone).forEach(q => completeQuest(q.kind, q.title));
+        return;
+    }
     setTimeout(() => askAboutDroppedQuests(dropped).catch(error => {
         console.error('[RPG Companion] Quest review failed:', error);
     }), 0);
@@ -219,24 +243,36 @@ async function askAboutDroppedQuests(dropped) {
                         <input type="checkbox" data-quest="${i}">
                         <span>
                             <span class="rpg-quest-review-kind">${escapeHtml(quest.kind === 'main' ? t('progression.mainQuest', 'Main') : t('progression.sideQuest', 'Side'))}</span>
-                            ${escapeHtml(quest.title)}
+                            ${escapeHtml(quest.title)}${quest.markedDone ? ` <em>(${escapeHtml(t('progression.markedDone', 'marked completed'))})</em>` : ''}
                             <small>${range(quest.kind)} ${escapeHtml(t('progression.ofBar', 'of the EXP bar'))}</small>
                         </span>
                     </label>`).join('')}
             </div>
         </div>
     `);
-    // A single quest is most likely the one just finished: pre-tick it.
-    if (dropped.length === 1) $dialog.find('input').prop('checked', true);
+    // Pre-tick quests the AI marked completed or whose steps were all done;
+    // a single dropped quest is most likely the one just finished.
+    dropped.forEach((quest, i) => {
+        if (quest.likelyDone || dropped.length === 1) $dialog.find(`[data-quest="${i}"]`).prop('checked', true);
+    });
 
     const result = await callGenericPopup($dialog, POPUP_TYPE.CONFIRM, '', {
         okButton: t('progression.awardExp', 'Award EXP'),
         cancelButton: t('progression.notCompleted', 'Not completed')
     });
-    if (result !== POPUP_RESULT.AFFIRMATIVE) return;
+    if (result !== POPUP_RESULT.AFFIRMATIVE) {
+        dropped.forEach(quest => recordQuestOutcome(quest.title, 'abandoned'));
+        saveChatData();
+        return;
+    }
 
     $dialog.find('input:checked').each(function () {
         const quest = dropped[Number($(this).data('quest'))];
         if (quest) completeQuest(quest.kind, quest.title);
     });
+    $dialog.find('input:not(:checked)').each(function () {
+        const quest = dropped[Number($(this).data('quest'))];
+        if (quest) recordQuestOutcome(quest.title, 'abandoned');
+    });
+    saveChatData();
 }

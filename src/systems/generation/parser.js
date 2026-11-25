@@ -7,6 +7,7 @@
 import { extensionSettings, FEATURE_FLAGS, addDebugLog } from '../../core/state.js';
 import { saveSettings } from '../../core/persistence.js';
 import { extractInventory } from './inventoryParser.js';
+import { listQuests, normalizeQuests, toStored, withoutCompleted } from '../mechanics/quests.js';
 import { repairJSON, extractJSONFromText } from '../../utils/jsonRepair.js';
 
 /**
@@ -739,33 +740,13 @@ export function parseUserStats(statsText) {
                     // console.log('[RPG Parser] ✓ Converted v3 inventory:', extensionSettings.userStats.inventory);
                 }
 
-                // Extract quests (convert v3 object format to v2 string format)
+                // Extract quests: { name, description, steps } objects (mechanics/quests.js).
+                // Quests the AI marks completed come off the active lists and are
+                // handed to the quest review (features/experience.js).
                 if (statsData.quests) {
-                    // Convert quest objects to strings
-                    const convertQuest = (quest) => {
-                        if (!quest) return '';
-                        if (typeof quest === 'string') return quest;
-                        if (typeof quest === 'object') {
-                            // Check for locked format: {value, locked}
-                            // Recursively extract value if it's nested
-                            let extracted = quest;
-                            while (typeof extracted === 'object' && extracted.value !== undefined) {
-                                extracted = extracted.value;
-                            }
-                            if (typeof extracted === 'string') return extracted;
-                            // v3 format: {title, description, status}
-                            return quest.title || quest.description || JSON.stringify(quest);
-                        }
-                        return String(quest);
-                    };
-
-                    extensionSettings.quests = {
-                        main: convertQuest(statsData.quests.main),
-                        optional: Array.isArray(statsData.quests.optional)
-                            ? statsData.quests.optional.map(convertQuest)
-                            : []
-                    };
-                    // console.log('[RPG Parser] ✓ Converted v3 quests:', extensionSettings.quests);
+                    const quests = normalizeQuests(statsData.quests);
+                    extensionSettings.questsJustCompleted = listQuests(quests).filter(x => x.quest.completed);
+                    extensionSettings.quests = toStored(withoutCompleted(quests));
                 }
 
                 // Extract skills if present (store as object, not JSON string)

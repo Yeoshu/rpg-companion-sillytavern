@@ -480,6 +480,12 @@ async function initUI() {
         saveSettings();
         $(document).trigger('rpg:progressionChanged');
     });
+    $('#rpg-quest-memory').on('change', function() {
+        const value = Math.round(Number($(this).val()));
+        extensionSettings.questMemory = Number.isFinite(value) && value >= 0 ? Math.min(500, value) : 20;
+        $(this).val(extensionSettings.questMemory);
+        saveSettings();
+    });
     $('#rpg-toggle-ask-dropped-quests').on('change', function() {
         extensionSettings.askAboutDroppedQuests = $(this).prop('checked');
         saveSettings();
@@ -1160,6 +1166,7 @@ async function initUI() {
     fillProgressionInputs();
     fillCombatInputs();
     $('#rpg-toggle-ask-dropped-quests').prop('checked', extensionSettings.askAboutDroppedQuests ?? true);
+    $('#rpg-quest-memory').val(extensionSettings.questMemory ?? 20);
     $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);

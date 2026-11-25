@@ -289,6 +289,9 @@ export let extensionSettings = {
     showAttemptButton: true, // Show the Attempt (roll for it) button above the chat input
     attemptSuggest: true, // Ask the AI which attribute/skill/difficulty fits when Attempt is clicked
     customAttemptPrompt: '', // Custom attempt check prompt (empty = use default)
+    customQuestPrompt: '', // Custom quest guidelines for tracker updates (empty = use default)
+    questMemory: 20, // Chat messages a finished/abandoned quest is listed in the tracker prompt
+    questHistory: [], // Per chat: [{name, outcome, at}] quests finished or abandoned
     showDiceDisplay: true, // Show the "Last Roll" display in the panel
     collapsedInventoryLocations: [], // Array of collapsed storage location names
     inventoryViewModes: {

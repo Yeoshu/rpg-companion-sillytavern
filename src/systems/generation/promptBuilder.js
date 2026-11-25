@@ -3,6 +3,9 @@
  * Handles all AI prompt generation for RPG tracker data
  */
 
+import { formatQuest } from '../mechanics/quests.js';
+import { buildQuestGuidelines, DEFAULT_QUEST_PROMPT } from './questPrompt.js';
+export { DEFAULT_QUEST_PROMPT };
 import { getContext } from '../../../../../../extensions.js';
 import { chat, getCurrentChatDetails, characters, this_chid } from '../../../../../../../script.js';
 import { selected_group, getGroupMembers, getGroupChat, groups } from '../../../../../../group-chats.js';
@@ -392,6 +395,9 @@ export function generateTrackerInstructions(includeHtmlPrompt = true, includeCon
             }
 
             instructions += '\n}\n```\n\nDo NOT output multiple separate JSON objects. Everything must be in ONE unified object with the keys shown above.';
+            if (enabledTrackers.includes('userStats') && extensionSettings.showQuests !== false) {
+                instructions += '\n\n' + buildQuestGuidelines(userName, getContext()?.chat?.length || 0);
+            }
         }
 
         // Only add continuation instruction if includeContinuation is true
@@ -663,26 +669,11 @@ function formatTrackerDataForContext(jsonData, trackerType, userName) {
             if (data.quests) {
                 const quests = data.quests;
 
-                // Main quest - handle string, array, or object with {title}
-                if (quests.main) {
-                    if (typeof quests.main === 'string') {
-                        const mainQuest = getValue(quests.main);
-                        if (mainQuest) formatted += `Main Quest: ${mainQuest}\n`;
-                    } else if (Array.isArray(quests.main) && quests.main.length > 0) {
-                        const questsList = quests.main.map(q => getValue(q)).filter(q => q);
-                        if (questsList.length > 0) formatted += `Main Quests: ${questsList.join(', ')}\n`;
-                    } else if (typeof quests.main === 'object') {
-                        // Handle {title: "..."} format
-                        const mainQuest = getValue(quests.main);
-                        if (mainQuest) formatted += `Main Quest: ${mainQuest}\n`;
-                    }
-                }
-
-                // Optional quests
-                if (quests.optional && Array.isArray(quests.optional) && quests.optional.length > 0) {
-                    const questsList = quests.optional.map(q => getValue(q)).filter(q => q);
-                    if (questsList.length > 0) formatted += `Optional Quests: ${questsList.join(', ')}\n`;
-                }
+                // Quests: "Name: description [✓ step; ☐ step]"
+                const mainQuests = (Array.isArray(quests.main) ? quests.main : [quests.main]).map(formatQuest).filter(Boolean);
+                if (mainQuests.length) formatted += `Main Quest: ${mainQuests.join(' | ')}\n`;
+                const optionalQuests = (Array.isArray(quests.optional) ? quests.optional : []).map(formatQuest).filter(Boolean);
+                if (optionalQuests.length) formatted += `Optional Quests: ${optionalQuests.join(' | ')}\n`;
             }
         } else if (trackerType === 'infoBox') {
             formatted += `Info Box:\n`;
@@ -908,8 +899,8 @@ export function formatHistoricalTrackerData(trackerData, trackerConfig, userName
             if (shouldIncludeQuests && userStatsData.quests) {
                 const quests = userStatsData.quests;
                 if (quests.main) {
-                    const mainQuest = getValue(quests.main);
-                    if (mainQuest && mainQuest !== 'None') statsFormatted += `Quest: ${mainQuest}, `;
+                    const mainQuest = formatQuest(quests.main);
+                    if (mainQuest) statsFormatted += `Quest: ${mainQuest}, `;
                 }
             }
 

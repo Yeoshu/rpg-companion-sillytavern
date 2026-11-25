@@ -2544,6 +2544,113 @@ input.rpg-sheet-strike-desc {
     flex: none;
 }
 
+/* Quest cards: name, description, steps */
+.rpg-quest-item.rpg-quest-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.2em;
+}
+
+.rpg-quest-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4em;
+}
+
+.rpg-quest-card .rpg-quest-title {
+    font-weight: 600;
+}
+
+.rpg-quest-progress {
+    flex: none;
+    color: var(--rpg-muted);
+    font-size: 0.8em;
+    font-variant-numeric: tabular-nums;
+}
+
+.rpg-quest-desc {
+    color: var(--rpg-muted);
+    font-size: 0.9em;
+    overflow-wrap: anywhere;
+}
+
+.rpg-quest-desc:empty::before {
+    content: attr(data-placeholder);
+    opacity: 0.5;
+    font-style: italic;
+}
+
+.rpg-quest-desc:empty:not(:focus) {
+    display: none;
+}
+
+.rpg-quest-card:hover .rpg-quest-desc:empty {
+    display: block;
+}
+
+.rpg-quest-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1em;
+    margin: 0.1em 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.9em;
+}
+
+.rpg-quest-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35em;
+}
+
+.rpg-quest-step.done .rpg-quest-step-text {
+    color: var(--rpg-muted);
+    text-decoration: line-through;
+}
+
+.rpg-quest-step-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.rpg-quest-step-toggle,
+.rpg-quest-step-remove,
+.rpg-quest-add-step {
+    flex: none;
+    padding: 0 0.15em;
+    color: var(--rpg-muted);
+    background: none;
+    border: none;
+    font: inherit;
+    cursor: pointer;
+}
+
+.rpg-quest-step.done .rpg-quest-step-toggle { color: var(--rpg-success); }
+
+.rpg-quest-step-remove,
+.rpg-quest-add-step {
+    opacity: 0;
+    transition: opacity var(--rpg-dur);
+}
+
+.rpg-quest-step:hover .rpg-quest-step-remove,
+.rpg-quest-card:hover .rpg-quest-add-step,
+.rpg-quest-add-step:focus-visible {
+    opacity: 1;
+}
+
+.rpg-quest-add-step {
+    align-self: flex-start;
+    font-size: 0.8em;
+}
+
+@media (hover: none) {
+    .rpg-quest-step-remove,
+    .rpg-quest-add-step { opacity: 0.7; }
+}
+
 .rpg-quest-hint {
     display: flex;
     gap: 0.4em;

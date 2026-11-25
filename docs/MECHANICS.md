@@ -116,12 +116,33 @@ pace at every level:
 Quests give EXP when you click their ✓ (Complete). ✗ removes a quest without
 EXP.
 
-When a tracker update from the AI drops a quest by itself, a dialog asks
-whether it was completed (a lone quest comes pre-ticked) and awards EXP for the
-ticked ones. The AI replacing the main quest counts as dropping it. Each quest
-is only asked about once per chat, so swipes and regenerations don't ask again;
-quests you completed or removed yourself are never asked about. This can be
-turned off in Settings → Progression.
+### Quests
+
+A quest has a short **name** ("The Toad Tax"), a **description** and
+**steps** (`src/systems/mechanics/quests.js`). The name is the quest's
+identifier: the AI may rewrite the description and add or tick off steps
+every update, and as long as the name stays, it's the same quest. In the
+panel everything is editable: click the name or description, tick steps, add
+or remove them. Older chats' plain-text quests become quests with that text
+as the name.
+
+How the AI handles quests (naming, steps, when to add optional quests,
+finishing) is the **Quest Guidelines** prompt in the Prompts editor. By
+default it asks for one main quest and only a few optional ones, and prefers
+adding a step to an existing quest over creating a new one.
+
+When a tracker update **marks a quest completed** (`"completed": true`) or
+**drops a quest's name**, a dialog asks which were completed and awards EXP
+for the ticked ones. Quests the AI marked completed, or whose steps were all
+done, come pre-ticked, as does a lone dropped quest. Each quest is only
+asked about once per chat, so swipes and regenerations don't ask again;
+quests you completed or removed yourself are never asked about. The dialog
+can be turned off in Settings → Progression (then only quests the AI marked
+completed give EXP).
+
+Quests that were completed or abandoned are listed by name in the tracker
+prompt for 20 messages (Settings → Progression), so the AI doesn't create
+them again.
 
 ### Enemies
 

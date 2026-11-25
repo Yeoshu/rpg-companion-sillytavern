@@ -519,7 +519,7 @@
     "quests.completeQuestTitle": "Complete quest (gain EXP)",
     "encounter.ui.levelShort": "Lv",
     "template.settingsModal.progression.askDropped": "Ask when the tracker removes a quest",
-    "template.settingsModal.progression.askDroppedNote": "When an AI tracker update drops a quest, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.",
+    "template.settingsModal.progression.askDroppedNote": "When an AI tracker update drops a quest or marks it completed, ask whether it was completed and award EXP if so. Each quest is only asked about once per chat.",
     "progression.droppedTitle": "Quests removed by the tracker",
     "progression.droppedQuestion": "Were any of these completed? Completed quests give EXP.",
     "progression.mainQuest": "Main",
@@ -554,5 +554,9 @@
     "template.settingsModal.sheet.budgetTolerance": "Scale AI enemies above budget ×",
     "template.settingsModal.sheet.tiersNote": "Enemy tiers: budget × the level budget, and × HP (also × EXP). Defaults were tuned by simulation; see docs/COMBAT_DESIGN.md §7.",
     "template.settingsModal.sheet.tierBudget": "Budget ×",
-    "template.settingsModal.sheet.tierHp": "HP ×"
+    "template.settingsModal.sheet.tierHp": "HP ×",
+    "template.settingsModal.progression.questMemory": "Remind the AI of finished quests for (messages):",
+    "template.settingsModal.progression.questMemoryNote": "Quests completed or abandoned are listed by name in the tracker prompt for this many messages, so they aren't created again. The quest rules themselves are in the Prompts editor (Quest Guidelines).",
+    "template.promptsEditor.questPrompt.title": "Quest Guidelines",
+    "template.promptsEditor.questPrompt.note": "Added to every tracker update: how the AI names, updates, adds and finishes quests. Placeholders: {userName}, {recentQuests} (the quests finished or abandoned recently, so they aren't made again)."
 }

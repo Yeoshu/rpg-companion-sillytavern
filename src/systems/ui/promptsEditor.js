@@ -6,12 +6,14 @@ import { extensionSettings } from '../../core/state.js';
 import { saveSettings } from '../../core/persistence.js';
 import { DEFAULT_HTML_PROMPT, DEFAULT_DIALOGUE_COLORING_PROMPT, DEFAULT_DECEPTION_PROMPT, DEFAULT_OMNISCIENCE_FILTER_PROMPT, DEFAULT_CYOA_PROMPT, DEFAULT_SPOTIFY_PROMPT, DEFAULT_NARRATOR_PROMPT, DEFAULT_CONTEXT_INSTRUCTIONS_PROMPT } from '../generation/promptBuilder.js';
 import { DEFAULT_ATTEMPT_PROMPT } from '../features/attempt.js';
+import { DEFAULT_QUEST_PROMPT } from '../generation/questPrompt.js';
 
 let $editorModal = null;
 let tempPrompts = null; // Temporary prompts for cancel functionality
 
 // Default prompts
 const DEFAULT_PROMPTS = {
+    quests: DEFAULT_QUEST_PROMPT,
     html: DEFAULT_HTML_PROMPT,
     dialogueColoring: DEFAULT_DIALOGUE_COLORING_PROMPT,
     deception: DEFAULT_DECEPTION_PROMPT,
@@ -105,6 +107,7 @@ function openPromptsEditor() {
         spotify: extensionSettings.customSpotifyPrompt || '',
         narrator: extensionSettings.customNarratorPrompt || '',
         attempt: extensionSettings.customAttemptPrompt || '',
+        quests: extensionSettings.customQuestPrompt || '',
         contextInstructions: extensionSettings.customContextInstructionsPrompt || '',
         plotRandom: extensionSettings.customPlotRandomPrompt || '',
         plotNatural: extensionSettings.customPlotNaturalPrompt || '',
@@ -123,6 +126,7 @@ function openPromptsEditor() {
     $('#rpg-prompt-spotify').val(extensionSettings.customSpotifyPrompt || DEFAULT_PROMPTS.spotify);
     $('#rpg-prompt-narrator').val(extensionSettings.customNarratorPrompt || DEFAULT_PROMPTS.narrator);
     $('#rpg-prompt-attempt').val(extensionSettings.customAttemptPrompt || DEFAULT_PROMPTS.attempt);
+    $('#rpg-prompt-quests').val(extensionSettings.customQuestPrompt || DEFAULT_PROMPTS.quests);
     $('#rpg-prompt-context-instructions').val(extensionSettings.customContextInstructionsPrompt || DEFAULT_PROMPTS.contextInstructions);
     $('#rpg-prompt-plot-random').val(extensionSettings.customPlotRandomPrompt || DEFAULT_PROMPTS.plotRandom);
     $('#rpg-prompt-plot-natural').val(extensionSettings.customPlotNaturalPrompt || DEFAULT_PROMPTS.plotNatural);
@@ -167,6 +171,8 @@ function savePrompts() {
     // Store only when changed from the default, so future default improvements still apply.
     const attemptPrompt = $('#rpg-prompt-attempt').val().trim();
     extensionSettings.customAttemptPrompt = attemptPrompt === DEFAULT_PROMPTS.attempt.trim() ? '' : attemptPrompt;
+    const questPrompt = $('#rpg-prompt-quests').val().trim();
+    extensionSettings.customQuestPrompt = questPrompt === DEFAULT_PROMPTS.quests.trim() ? '' : questPrompt;
     extensionSettings.customContextInstructionsPrompt = $('#rpg-prompt-context-instructions').val().trim();
     extensionSettings.customPlotRandomPrompt = $('#rpg-prompt-plot-random').val().trim();
     extensionSettings.customPlotNaturalPrompt = $('#rpg-prompt-plot-natural').val().trim();
@@ -212,6 +218,9 @@ function restorePromptToDefault(promptType) {
         case 'attempt':
             extensionSettings.customAttemptPrompt = '';
             break;
+        case 'quests':
+            extensionSettings.customQuestPrompt = '';
+            break;
         case 'contextInstructions':
             extensionSettings.customContextInstructionsPrompt = '';
             break;
@@ -250,6 +259,7 @@ function restoreAllToDefaults() {
     $('#rpg-prompt-spotify').val(DEFAULT_PROMPTS.spotify);
     $('#rpg-prompt-narrator').val(DEFAULT_PROMPTS.narrator);
     $('#rpg-prompt-attempt').val(DEFAULT_PROMPTS.attempt);
+    $('#rpg-prompt-quests').val(DEFAULT_PROMPTS.quests);
     $('#rpg-prompt-context-instructions').val(DEFAULT_PROMPTS.contextInstructions);
     $('#rpg-prompt-plot-random').val(DEFAULT_PROMPTS.plotRandom);
     $('#rpg-prompt-plot-natural').val(DEFAULT_PROMPTS.plotNatural);
@@ -266,6 +276,8 @@ function restoreAllToDefaults() {
     extensionSettings.customCYOAPrompt = '';
     extensionSettings.customSpotifyPrompt = '';
     extensionSettings.customNarratorPrompt = '';
+    extensionSettings.customAttemptPrompt = '';
+    extensionSettings.customQuestPrompt = '';
     extensionSettings.customContextInstructionsPrompt = '';
     extensionSettings.customPlotRandomPrompt = '';
     extensionSettings.customPlotNaturalPrompt = '';

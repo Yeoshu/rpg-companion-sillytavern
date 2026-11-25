@@ -116,12 +116,11 @@ export function buildUserStatsJSONInstruction() {
         instruction += '  },\n';
     }
 
-    // Quests section
+    // Quests section (see buildQuestGuidelines for the rules)
     instruction += '  "quests": {\n';
-    instruction += '    "main": {"title": "Quest title"},\n';
+    instruction += '    "main": {"name": "Short Quest Name", "description": "What the goal is and where it stands", "steps": [{"text": "Step", "done": false}]},\n';
     instruction += '    "optional": [\n';
-    instruction += '      {"title": "Quest1"},\n';
-    instruction += '      {"title": "Quest2"}\n';
+    instruction += '      {"name": "Short Quest Name", "description": "...", "steps": [{"text": "Step", "done": true}]}\n';
     instruction += '    ]\n';
     instruction += '  }\n';
     instruction += '}';
