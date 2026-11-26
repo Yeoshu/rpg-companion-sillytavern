@@ -9,6 +9,7 @@ import { selected_group, getGroupMembers, groups } from '../../../../../../group
 import { extensionSettings, committedTrackerData } from '../../core/state.js';
 import { currentEncounter } from '../features/encounterState.js';
 import { playerPronouns } from '../features/sheet.js';
+import { withoutDisabledCharacterStats, withoutDisabledStats } from '../../utils/trackerVisibility.js';
 import { repairJSON } from '../../utils/jsonRepair.js';
 import { isPresentCharactersEnabled } from '../../utils/presentCharacters.js';
 import { buildInventorySummary, generateTrackerInstructions, generateTrackerExample, buildAttributesString } from './promptBuilder.js';
@@ -316,7 +317,8 @@ export async function buildEncounterInitPrompt(setup = {}) {
 
     // Add HP and other stats from committed tracker data
     if (committedTrackerData.userStats) {
-        userStatsInfo += `${userName}'s Current Stats:\n${committedTrackerData.userStats}\n\n`;
+        const stats = withoutDisabledStats(committedTrackerData.userStats, extensionSettings.trackerConfig?.userStats);
+        userStatsInfo += `${userName}'s Current Stats:\n${typeof stats === 'object' ? JSON.stringify(stats, null, 2) : stats}\n\n`;
     }
 
     // Add skills if available
@@ -344,7 +346,8 @@ export async function buildEncounterInitPrompt(setup = {}) {
     // Add present characters info for party members
     let partyInfo = '';
     if (committedTrackerData.characterThoughts) {
-        partyInfo += `Present Characters (potential party members):\n${committedTrackerData.characterThoughts}\n\n`;
+        const present = withoutDisabledCharacterStats(committedTrackerData.characterThoughts, extensionSettings.trackerConfig?.presentCharacters);
+        partyInfo += `Present Characters (potential party members):\n${typeof present === 'object' ? JSON.stringify(present, null, 2) : present}\n\n`;
     }
 
     // Close history and add combat initialization instruction
@@ -506,9 +509,8 @@ export async function buildCombatSummaryPrompt(combatLog, result, aftermath = ''
             summaryMessage += `<previous>\n`;
 
             if (committedTrackerData.userStats) {
-                const statsJSON = typeof committedTrackerData.userStats === 'object'
-                    ? JSON.stringify(committedTrackerData.userStats, null, 2)
-                    : committedTrackerData.userStats;
+                const stats = withoutDisabledStats(committedTrackerData.userStats, extensionSettings.trackerConfig?.userStats);
+                const statsJSON = typeof stats === 'object' ? JSON.stringify(stats, null, 2) : stats;
                 summaryMessage += statsJSON + '\n';
             }
 
@@ -520,9 +522,8 @@ export async function buildCombatSummaryPrompt(combatLog, result, aftermath = ''
             }
 
             if (committedTrackerData.characterThoughts) {
-                const charactersJSON = typeof committedTrackerData.characterThoughts === 'object'
-                    ? JSON.stringify(committedTrackerData.characterThoughts, null, 2)
-                    : committedTrackerData.characterThoughts;
+                const present = withoutDisabledCharacterStats(committedTrackerData.characterThoughts, extensionSettings.trackerConfig?.presentCharacters);
+                const charactersJSON = typeof present === 'object' ? JSON.stringify(present, null, 2) : present;
                 summaryMessage += charactersJSON + '\n';
             }
 

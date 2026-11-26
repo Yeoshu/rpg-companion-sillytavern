@@ -18,6 +18,7 @@ import {
 } from './jsonPromptHelpers.js';
 import { applyLocks } from './lockManager.js';
 import { isPresentCharactersEnabled } from '../../utils/presentCharacters.js';
+import { withoutDisabledCharacterStats, withoutDisabledStats } from '../../utils/trackerVisibility.js';
 
 // Type imports
 /** @typedef {import('../../types/inventory.js').InventoryV2} InventoryV2 */
@@ -275,15 +276,16 @@ export function generateTrackerExample() {
     // });
 
     if (extensionSettings.showUserStats && committedTrackerData.userStats) {
+        const userStats = promptUserStats();
         // Try to parse as JSON first, otherwise treat as text
         try {
-            JSON.parse(committedTrackerData.userStats);
+            JSON.parse(userStats);
             // It's valid JSON - apply locks
-            const lockedData = applyLocks(committedTrackerData.userStats, 'userStats');
+            const lockedData = applyLocks(userStats, 'userStats');
             parts.push(`  "userStats": ${lockedData}`);
         } catch {
             // It's text format - no locks applied
-            example += '```\n' + committedTrackerData.userStats + '\n```\n';
+            example += '```\n' + userStats + '\n```\n';
         }
     }
 
@@ -299,11 +301,11 @@ export function generateTrackerExample() {
 
     if (isPresentCharactersEnabled() && committedTrackerData.characterThoughts) {
         try {
-            JSON.parse(committedTrackerData.characterThoughts);
-            const lockedData = applyLocks(committedTrackerData.characterThoughts, 'characters');
+            JSON.parse(promptCharacters());
+            const lockedData = applyLocks(promptCharacters(), 'characters');
             parts.push(`  "characters": ${lockedData}`);
         } catch {
-            example += '```\n' + committedTrackerData.characterThoughts + '\n```';
+            example += '```\n' + promptCharacters() + '\n```';
         }
     }
 
@@ -468,11 +470,24 @@ export function generateTrackerInstructions(includeHtmlPrompt = true, includeCon
  * @param {string} userName - User's name for personalization
  * @returns {string} Formatted text summary
  */
+/** The committed user stats as a string for prompts, without stats switched off in the Tracker Editor. */
+function promptUserStats() {
+    const stats = withoutDisabledStats(committedTrackerData.userStats, extensionSettings.trackerConfig?.userStats);
+    return typeof stats === 'object' && stats !== null ? JSON.stringify(stats, null, 2) : stats;
+}
+
+/** The committed Present Characters data for prompts (same type as stored), without switched-off character stats. */
+function promptCharacters() {
+    return withoutDisabledCharacterStats(committedTrackerData.characterThoughts, extensionSettings.trackerConfig?.presentCharacters);
+}
+
 function formatTrackerDataForContext(jsonData, trackerType, userName) {
     if (!jsonData) return '';
 
     try {
-        const data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
+        let data = typeof jsonData === 'string' ? JSON.parse(jsonData) : jsonData;
+        // Stats switched off in the Tracker Editor stay out of the prompt.
+        if (trackerType === 'userStats') data = withoutDisabledStats(data, extensionSettings.trackerConfig?.userStats);
         let formatted = '';
 
 // Helper to extract value from potentially locked fields and common object formats
@@ -1045,7 +1060,7 @@ export function generateContextualSummary() {
     // Add Present Characters tracker data if enabled
     if (isPresentCharactersEnabled() && committedTrackerData.characterThoughts) {
         try {
-            const formatted = formatTrackerDataForContext(committedTrackerData.characterThoughts, 'characters', userName);
+            const formatted = formatTrackerDataForContext(promptCharacters(), 'characters', userName);
             if (formatted) {
                 summary += formatted + '\n';
             }
@@ -1096,12 +1111,12 @@ export function generateRPGPromptText() {
         if (extensionSettings.showUserStats && committedTrackerData.userStats) {
             try {
                 // Try to parse as JSON - apply locks before adding to previous
-                const lockedData = applyLocks(committedTrackerData.userStats, 'userStats');
+                const lockedData = applyLocks(promptUserStats(), 'userStats');
                 const parsed = JSON.parse(lockedData);
                 unifiedPrevious.userStats = parsed;
             } catch {
                 // Old text format - show it separately for backward compat
-                promptText += `${committedTrackerData.userStats}\n\n`;
+                promptText += `${promptUserStats()}\n\n`;
             }
         }
 
@@ -1125,12 +1140,12 @@ export function generateRPGPromptText() {
             try {
                 let parsed;
                 // Check if it's already a JavaScript object/array (not a JSON string)
-                if (typeof committedTrackerData.characterThoughts === 'object') {
+                if (typeof promptCharacters() === 'object') {
                     // Already parsed - apply locks and use directly
-                    parsed = applyLocks(committedTrackerData.characterThoughts, 'characters');
+                    parsed = applyLocks(promptCharacters(), 'characters');
                 } else {
                     // It's a JSON string - apply locks and parse
-                    const lockedData = applyLocks(committedTrackerData.characterThoughts, 'characters');
+                    const lockedData = applyLocks(promptCharacters(), 'characters');
                     parsed = JSON.parse(lockedData);
                 }
 
@@ -1143,9 +1158,9 @@ export function generateRPGPromptText() {
                 // console.warn('[RPG Companion] Failed to process characters for previous section:', e);
                 // Old text format - show it separately for backward compat
                 if (!unifiedPrevious.userStats && !unifiedPrevious.infoBox) {
-                    const charText = typeof committedTrackerData.characterThoughts === 'string'
-                        ? committedTrackerData.characterThoughts
-                        : JSON.stringify(committedTrackerData.characterThoughts, null, 2);
+                    const charText = typeof promptCharacters() === 'string'
+                        ? promptCharacters()
+                        : JSON.stringify(promptCharacters(), null, 2);
                     promptText += `${charText}\n`;
                 }
             }
@@ -1372,11 +1387,11 @@ export async function generateAvatarPromptGenerationPrompt(characterName) {
 
     if (isUser) {
         if (committedTrackerData.userStats) {
-            systemMessage += `[User Stats]\n${committedTrackerData.userStats}\n\n`;
+            systemMessage += `[User Stats]\n${promptUserStats()}\n\n`;
         }
     } else {
         if (committedTrackerData.characterThoughts) {
-            const thoughts = committedTrackerData.characterThoughts;
+            const thoughts = promptCharacters();
             const blocks = ('\n' + thoughts).split(/\n- /);
 
             let charBlock = null;
