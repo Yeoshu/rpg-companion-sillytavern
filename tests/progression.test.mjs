@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    DEFAULT_PROGRESSION, normalizeProgression, expToNextLevel, questReward,
+    DEFAULT_PROGRESSION, normalizeProgression, expToNextLevel, questReward, questStepMultiplier,
     enemyLevelMultiplier, enemyReward, addExp, earlyMultiplier,
 } from '../src/systems/mechanics/progression.js';
 
@@ -29,6 +29,17 @@ test('quest rewards are a percentage of the current bar', () => {
     assert.equal(questReward('main', 4, S, () => 0.5), 100); // 25% of 400
     assert.equal(questReward('side', 1, S, () => 0), 5);
     assert.equal(questReward('side', 2, S, () => 1), 20);  // 10% of 200
+});
+
+test('quest rewards scale with the number of steps', () => {
+    assert.equal(questStepMultiplier('main', 8, S), 2);
+    assert.equal(questStepMultiplier('main', 2, S), 0.5);
+    assert.equal(questStepMultiplier('side', 3, S), 1.5);
+    assert.equal(questStepMultiplier('main', 0, S), 1);                 // no steps: typical
+    assert.equal(questStepMultiplier('main', 8, { ...S, mainQuestSteps: 0 }), 1); // scaling off
+    assert.equal(questReward('main', 1, S, () => 0, 8), 40);           // 20% × 2
+    assert.equal(questReward('side', 1, S, () => 0, 1), 3);            // 5% × 0.5 = 2.5 → 3
+    assert.equal(questReward('main', 1, S, () => 0), 20);              // steps unknown
 });
 
 test('enemy reward scales with the level difference', () => {

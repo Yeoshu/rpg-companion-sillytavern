@@ -18,6 +18,7 @@ import { chat, saveChatDebounced, setExtensionPrompt, extension_prompt_types, ex
 import { getContext } from '../../../../../../extensions.js';
 import { extensionSettings, queuedDiceRoll, setQueuedDiceRoll } from '../../core/state.js';
 import { DIFFICULTIES, formatModifier, formatTarget } from './rules.js';
+import { TASK_OUTCOMES } from './longTask.js';
 
 const PROMPT_KEY = 'rpg-companion-dice';
 const ROLL_FIELD = 'rpg_dice_roll';
@@ -83,6 +84,37 @@ export function clearDisplayedRoll() {
     }
 }
 
+/** "Skill 12, Smithing +2, Hard -3" */
+function checkParts(roll) {
+    const parts = [`${roll.attribute.name} ${roll.attribute.value} (${formatTarget(roll.base)})`];
+    if (roll.skill) {
+        parts.push(roll.skill.trained
+            ? `${roll.skill.name} ${formatModifier(roll.skill.modifier)}`
+            : `${roll.skill.name} untrained ${formatModifier(roll.skill.modifier)}`);
+    }
+    const difficulty = DIFFICULTIES[roll.difficulty] || DIFFICULTIES.average;
+    parts.push(`${difficulty.label} ${formatModifier(difficulty.modifier)}`);
+    return parts.join(', ');
+}
+
+/** The AI's instructions for a long task (see mechanics/longTask.js). */
+function describeTaskForPrompt(roll, userName) {
+    const outcome = TASK_OUTCOMES[roll.outcome] || TASK_OUTCOMES.failure;
+    const n = roll.stretches.length;
+    const lines = roll.stretches.map((s, i) => `  Stretch ${i + 1} of ${n}: rolled ${s.total} (${s.dice.join(' + ')}): ${outcomeText(s)}`);
+    const what = roll.reason ? `: ${roll.reason}` : '';
+    const time = roll.duration ? ` over ${roll.duration}` : '';
+    return `[Long task] ${userName} works at a long or repetitive task${time}${what}.\n`
+        + `It is split into ${n} stretch${n === 1 ? '' : 'es'} in order, one roll each. Check: ${checkParts(roll)}. Needed 3d6 ≤ ${roll.target}.\n`
+        + `${lines.join('\n')}\n`
+        + `Overall: ${outcome.label.toUpperCase()} (${roll.successes} of ${n} stretches succeeded). ${outcome.guide}\n`
+        + `Skip ahead through this time instead of playing it out: summarize it${roll.duration ? ` (${roll.duration})` : ''} as a short montage, in order, `
+        + 'with each stretch going the way its roll says (a bigger margin means it went more smoothly or worse). Do not write it scene by scene or with long dialogue. '
+        + 'End once the time has passed, with a brief summary of how it went: what was achieved, what went wrong, and what it cost. '
+        + `${roll.duration ? `Move the story's time and date forward by ${roll.duration}. ` : 'Move the story\'s time and date forward accordingly. '}`
+        + 'The rolls are final: do not re-roll, soften or ignore them.';
+}
+
 function outcomeText(roll) {
     if (roll.critical === 'success') return 'CRITICAL SUCCESS (natural 3)';
     if (roll.critical === 'failure') return 'CRITICAL FAILURE (natural 18)';
@@ -96,12 +128,19 @@ export function summarizeRoll(roll) {
         const skill = roll.skill ? ` (${roll.skill.name})` : '';
         return `${roll.attribute.name}${skill}: ${roll.total} vs ${formatTarget(roll.target)} ${roll.success ? '✓' : '✗'}`;
     }
+    if (roll.kind === 'task') {
+        const skill = roll.skill ? ` (${roll.skill.name})` : '';
+        const outcome = TASK_OUTCOMES[roll.outcome]?.label || roll.outcome;
+        return `${roll.attribute.name}${skill}: ${roll.stretches.map(s => (s.success ? '✓' : '✗')).join('')} ${outcome}`;
+    }
     return `${roll.formula}: ${roll.total}`;
 }
 
 /** The text the AI sees for a roll. */
 export function describeRollForPrompt(roll, userName = getContext().name1) {
     if (!roll) return '';
+
+    if (roll.kind === 'task') return describeTaskForPrompt(roll, userName);
 
     if (roll.kind === 'check') {
         const parts = [`${roll.attribute.name} ${roll.attribute.value} (${formatTarget(roll.base)})`];

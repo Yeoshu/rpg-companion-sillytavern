@@ -226,12 +226,14 @@ export function togglePlotButtons() {
     const showNatural = !!extensionSettings.enableNaturalPlot;
     const showEncounter = !!extensionSettings.encounterSettings?.enabled;
     const showAttempt = extensionSettings.showAttemptButton ?? true;
+    const showTask = extensionSettings.showTaskButton ?? true;
 
     $('#rpg-plot-random').toggle(showRandom);
     $('#rpg-plot-natural').toggle(showNatural);
     $('#rpg-encounter-button').toggle(showEncounter);
     $('#rpg-attempt-button').toggle(showAttempt);
-    $('#rpg-plot-buttons').toggle(showRandom || showNatural || showEncounter || showAttempt);
+    $('#rpg-task-button').toggle(showTask);
+    $('#rpg-plot-buttons').toggle(showRandom || showNatural || showEncounter || showAttempt || showTask);
 }
 
 /**

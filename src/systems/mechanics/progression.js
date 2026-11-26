@@ -18,6 +18,13 @@ export const DEFAULT_PROGRESSION = Object.freeze({
     /** Side quest reward, % of the EXP bar. */
     sideQuestMin: 5,
     sideQuestMax: 10,
+    /**
+     * Quest rewards scale with the quest's steps: a quest with this many steps
+     * gets the range above, one with twice as many twice as much. Quests
+     * without steps count as typical. 0 turns the scaling off.
+     */
+    mainQuestSteps: 4,
+    sideQuestSteps: 2,
     /** Defeating an enemy of your own level, % of the EXP bar. */
     enemyBase: 5,
     /**
@@ -51,6 +58,8 @@ export function normalizeProgression(settings = {}) {
         mainQuestMax: num(settings.mainQuestMax, d.mainQuestMax),
         sideQuestMin: num(settings.sideQuestMin, d.sideQuestMin),
         sideQuestMax: num(settings.sideQuestMax, d.sideQuestMax),
+        mainQuestSteps: Math.min(50, Math.floor(num(settings.mainQuestSteps, d.mainQuestSteps))),
+        sideQuestSteps: Math.min(50, Math.floor(num(settings.sideQuestSteps, d.sideQuestSteps))),
         enemyBase: num(settings.enemyBase, d.enemyBase),
         enemyLevelFactor: num(settings.enemyLevelFactor, d.enemyLevelFactor, 1),
         earlyBoost: Math.min(10, num(settings.earlyBoost, d.earlyBoost, 1)),
@@ -88,16 +97,28 @@ function percentOfBar(percent, level, settings) {
 }
 
 /**
+ * How much a quest's size scales its reward: its steps ÷ the typical number
+ * of steps for its kind. Quests without steps (or with scaling off) count 1.
+ */
+export function questStepMultiplier(kind, steps, settings = DEFAULT_PROGRESSION) {
+    const typical = Number(kind === 'main' ? settings.mainQuestSteps : settings.sideQuestSteps) || 0;
+    const n = Math.floor(Number(steps) || 0);
+    if (typical <= 0 || n <= 0) return 1;
+    return n / typical;
+}
+
+/**
  * EXP for completing a quest.
  * @param {'main'|'side'} kind
  * @param {number} level - current level
  * @param {object} settings - normalized progression settings
  * @param {() => number} rng - returns [0, 1)
+ * @param {number} [steps] - the quest's number of steps (see questStepMultiplier)
  */
-export function questReward(kind, level, settings = DEFAULT_PROGRESSION, rng = Math.random) {
+export function questReward(kind, level, settings = DEFAULT_PROGRESSION, rng = Math.random, steps = 0) {
     const min = kind === 'main' ? settings.mainQuestMin : settings.sideQuestMin;
     const max = kind === 'main' ? settings.mainQuestMax : settings.sideQuestMax;
-    return percentOfBar(min + (max - min) * rng(), level, settings);
+    return percentOfBar((min + (max - min) * rng()) * questStepMultiplier(kind, steps, settings), level, settings);
 }
 
 /** Reward multiplier for an enemy `enemyLevel` vs a player at `playerLevel`. */

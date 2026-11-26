@@ -19,7 +19,7 @@ import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
 import {
-    normalizeProgression, expToNextLevel, addExp, questReward, enemyReward
+    normalizeProgression, expToNextLevel, addExp, questReward, questStepMultiplier, enemyReward
 } from '../mechanics/progression.js';
 
 function t(key, fallback) {
@@ -97,10 +97,11 @@ export function setExp(value) {
  * Awards EXP for a completed quest.
  * @param {'main'|'side'} kind
  * @param {string} title
+ * @param {number} [steps] - the quest's number of steps; bigger quests give more
  */
-export function completeQuest(kind, title) {
+export function completeQuest(kind, title, steps = 0) {
     markQuestResolved(title, 'completed');
-    const amount = questReward(kind, getProgressState().level, getProgression());
+    const amount = questReward(kind, getProgressState().level, getProgression(), Math.random, steps);
     const label = kind === 'main' ? t('progression.mainQuestDone', 'Main quest complete') : t('progression.sideQuestDone', 'Side quest complete');
     return grantExp(amount, title ? `${label}: ${title}` : label);
 }
@@ -222,7 +223,7 @@ export function reviewDroppedQuests(before) {
     saveChatData();
     if (!ask) {
         // Not asking: quests the AI marked completed still count as completed.
-        dropped.filter(q => q.markedDone).forEach(q => completeQuest(q.kind, q.title));
+        dropped.filter(q => q.markedDone).forEach(q => completeQuest(q.kind, q.title, q.quest?.steps?.length));
         return;
     }
     setTimeout(() => askAboutDroppedQuests(dropped).catch(error => {
@@ -232,9 +233,13 @@ export function reviewDroppedQuests(before) {
 
 async function askAboutDroppedQuests(dropped) {
     const settings = getProgression();
-    const range = (kind) => kind === 'main'
-        ? `${settings.mainQuestMin}–${settings.mainQuestMax}%`
-        : `${settings.sideQuestMin}–${settings.sideQuestMax}%`;
+    // The reward range, scaled by the quest's steps.
+    const range = (quest) => {
+        const m = questStepMultiplier(quest.kind, quest.quest?.steps?.length, settings);
+        const [min, max] = quest.kind === 'main' ? [settings.mainQuestMin, settings.mainQuestMax] : [settings.sideQuestMin, settings.sideQuestMax];
+        const r = v => Math.round(v * m * 10) / 10;
+        return `${r(min)}–${r(max)}%`;
+    };
 
     const $dialog = $(`
         <div class="rpg-quest-review">
@@ -247,7 +252,7 @@ async function askAboutDroppedQuests(dropped) {
                         <span>
                             <span class="rpg-quest-review-kind">${escapeHtml(quest.kind === 'main' ? t('progression.mainQuest', 'Main') : t('progression.sideQuest', 'Side'))}</span>
                             ${escapeHtml(quest.title)}${quest.markedDone ? ` <em>(${escapeHtml(t('progression.markedDone', 'marked completed'))})</em>` : ''}
-                            <small>${range(quest.kind)} ${escapeHtml(t('progression.ofBar', 'of the EXP bar'))}</small>
+                            <small>${range(quest)} ${escapeHtml(t('progression.ofBar', 'of the EXP bar'))}</small>
                         </span>
                     </label>`).join('')}
             </div>
@@ -271,7 +276,7 @@ async function askAboutDroppedQuests(dropped) {
 
     $dialog.find('input:checked').each(function () {
         const quest = dropped[Number($(this).data('quest'))];
-        if (quest) completeQuest(quest.kind, quest.title);
+        if (quest) completeQuest(quest.kind, quest.title, quest.quest?.steps?.length);
     });
     $dialog.find('input:not(:checked)').each(function () {
         const quest = dropped[Number($(this).data('quest'))];

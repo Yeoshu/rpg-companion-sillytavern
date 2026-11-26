@@ -533,6 +533,12 @@ async function initUI() {
         togglePlotButtons();
     });
 
+    $('#rpg-toggle-task-button').on('change', function() {
+        extensionSettings.showTaskButton = $(this).prop('checked');
+        saveSettings();
+        togglePlotButtons();
+    });
+
     $('#rpg-toggle-attempt-suggest').on('change', function() {
         extensionSettings.attemptSuggest = $(this).prop('checked');
         saveSettings();
@@ -1206,6 +1212,7 @@ async function initUI() {
     $('#rpg-quest-memory').val(extensionSettings.questMemory ?? 20);
     $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
+    $('#rpg-toggle-task-button').prop('checked', extensionSettings.showTaskButton ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);
     $('#rpg-encounter-history-depth').val(extensionSettings.encounterSettings?.historyDepth ?? 8);
     $('#rpg-encounter-narration').val(extensionSettings.encounterSettings?.narration === 'end' ? 'end' : 'phase');

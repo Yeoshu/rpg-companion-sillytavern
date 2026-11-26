@@ -4833,3 +4833,9 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
     white-space: nowrap;
     margin: 4px 0 10px;
 }
+
+/* Task dialog */
+.rpg-task-odds {
+    margin-top: 6px;
+    opacity: 0.85;
+}

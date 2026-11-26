@@ -9,6 +9,7 @@ import { DEFAULT_HTML_PROMPT, DEFAULT_DIALOGUE_COLORING_PROMPT, DEFAULT_DECEPTIO
 import { Generate } from '../../../../../../../script.js';
 import { i18n } from '../../core/i18n.js';
 import { startAttempt } from './attempt.js';
+import { startTask } from './longTask.js';
 
 /**
  * Sets up the plot progression buttons inside the send form area.
@@ -30,6 +31,9 @@ export function setupPlotButtons(handlePlotClick, handleEncounterClick) {
             <button id="rpg-attempt-button" class="menu_button interactable rpg-plot-btn" tabindex="0" role="button" title="${i18n.getTranslation('plotProgression.tooltips.attempt') || 'Send your message as an attempt that needs a dice roll'}">
                 <i class="fa-solid fa-dice-d20"></i>&nbsp;<span class="rpg-btn-text">${i18n.getTranslation('plotProgression.buttons.attempt') || 'Attempt'}</span>
             </button>
+            <button id="rpg-task-button" class="menu_button interactable rpg-plot-btn" tabindex="0" role="button" title="${i18n.getTranslation('plotProgression.tooltips.task') || 'Send your message as a long or repetitive task: roll for it, skip ahead and sum up how it went'}">
+                <i class="fa-solid fa-hourglass-half"></i>&nbsp;<span class="rpg-btn-text">${i18n.getTranslation('plotProgression.buttons.task') || 'Task'}</span>
+            </button>
             <button id="rpg-plot-random" class="menu_button interactable rpg-plot-btn" tabindex="0" role="button" title="${i18n.getTranslation('plotProgression.tooltips.randomizedPlot') || 'Generate a random plot twist or event'}">
                 <i class="fa-solid fa-dice"></i>&nbsp;<span class="rpg-btn-text">${i18n.getTranslation('plotProgression.buttons.randomizedPlot') || 'Randomized Plot'}</span>
             </button>
@@ -50,6 +54,7 @@ export function setupPlotButtons(handlePlotClick, handleEncounterClick) {
     $('#rpg-plot-natural').on('click', () => handlePlotClick('natural'));
     $('#rpg-encounter-button').on('click', () => handleEncounterClick());
     $('#rpg-attempt-button').on('click', () => startAttempt());
+    $('#rpg-task-button').on('click', () => startTask());
 
     // Show/hide based on setting
     togglePlotButtons();

@@ -97,6 +97,43 @@ Ordinary messages never trigger anything; rolling is always your call.
 The suggestion uses the same model as tracker generation (SillyTavern's current
 API, or the external API in External mode).
 
+## Long tasks
+
+The **Task** button (hourglass, next to Attempt) is for work that takes hours,
+days or weeks, or the same thing done over and over: a week of sword drills,
+crafting a bow, searching an archive all night, a long journey.
+
+1. Type the task, ideally with how long you spend ("I spend the next three
+   days at the forge making a proper sword").
+2. Click **Task**. With "Suggest the check with AI" on, the model picks the
+   attribute, skill and difficulty like for Attempt, plus how long it takes and
+   how many **stretches** (1–5) to split it into (the editable **Task Check
+   Prompt**).
+3. The dialog shows the target for each roll and the odds of each outcome.
+   Adjust anything and click **Roll and send**.
+
+Each stretch is one 3d6 check against the same target. The score is the
+number of successes, +1 for each critical success, −1 for each critical
+failure:
+
+| Score | Outcome |
+|---|---|
+| more than the stretches | Exceptional: everything worked, and something went remarkably well |
+| all stretches | Success |
+| more than half | Mostly successful: done, with setbacks |
+| above 0 | Partial success: some of it done |
+| 0 or less | Failure: the time is spent anyway |
+
+The roll is attached to your message like an Attempt, and the AI is told to
+skip ahead: summarize the time as a short montage in which each stretch goes
+the way its roll says, end once the time has passed with what was achieved,
+what went wrong and what it cost, and move the story's time and date forward
+(the tracker picks that up from the reply). More stretches make the result
+steadier: one roll is all or nothing, five rolls rarely fail outright.
+
+Rules: `src/systems/mechanics/longTask.js`; button and dialog:
+`src/systems/features/longTask.js`.
+
 ## Progression
 
 Level, EXP and unspent character points (CP) are saved per chat. The level and
@@ -109,12 +146,18 @@ pace at every level:
 
 | Source | Reward (default) | About this many per level |
 |---|---|---|
-| Main quest completed | 20–30% (rolled) | 4 |
-| Side quest completed | 5–10% (rolled) | 10–20 |
+| Main quest completed (4 steps) | 20–30% (rolled) | 4 |
+| Side quest completed (2 steps) | 5–10% (rolled) | 10–20 |
 | Enemy of your level defeated | 5% | 20 |
 
 Quests give EXP when you click their ✓ (Complete). ✗ removes a quest without
 EXP.
+
+**Bigger quests give more.** The quest rewards are for a quest of typical
+size: 4 steps for a main quest, 2 for a side quest. The reward scales with
+the quest's steps (all of them, done or not): a 2-step main quest gives half,
+an 8-step one twice as much. A quest without steps counts as typical. Both
+numbers are in Settings → Progression; 0 turns the scaling off.
 
 **Fast start.** So a new character gets going quickly, every reward is
 multiplied at the first levels: ×2 at level 1, fading evenly to ×1 over four
