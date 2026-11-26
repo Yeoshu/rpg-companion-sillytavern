@@ -10,6 +10,7 @@
  */
 
 import { safeGenerateRaw } from '../../utils/responseExtractor.js';
+import { getCurrentChatId } from '../../../../../../../script.js';
 import { executeSlashCommandsOnChatInput } from '../../../../../../../scripts/slash-commands.js';
 import { extensionSettings, sessionAvatarPrompts, setSessionAvatarPrompt } from '../../core/state.js';
 import { saveChatData, saveSettings } from '../../core/persistence.js';
@@ -245,7 +246,13 @@ function buildFallbackPrompt(characterName) {
  * @param {string|null} prompt - The prompt to use (optional, will fallback if null)
  * @returns {Promise<string|null>} Avatar URL or null if failed
  */
+function currentChatId() {
+    try { return getCurrentChatId() || null; } catch { return null; }
+}
+
 async function generateSingleAvatar(characterName, prompt = null) {
+    // An avatar belongs to the chat it was asked for; generation can outlast a chat switch.
+    const chatAtStart = currentChatId();
     // Use provided prompt, or check cache, or build fallback
     if (!prompt) {
         prompt = sessionAvatarPrompts[characterName];
@@ -268,6 +275,10 @@ async function generateSingleAvatar(characterName, prompt = null) {
         // Extract image URL from result
         const imageUrl = extractImageUrl(result);
 
+        if (imageUrl && currentChatId() !== chatAtStart) {
+            console.info(`[RPG Avatar] Chat changed while generating ${characterName}'s avatar; not saving it into another chat.`);
+            return null;
+        }
         if (imageUrl) {
             // Store the avatar
             setNpcAvatar(characterName, imageUrl);

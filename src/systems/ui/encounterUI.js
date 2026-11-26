@@ -15,7 +15,7 @@
  */
 
 import { getContext } from '../../../../../../extensions.js';
-import { chat, saveChatDebounced, characters, this_chid, user_avatar } from '../../../../../../../script.js';
+import { chat, saveChatDebounced, characters, this_chid, user_avatar, getCurrentChatId, eventSource, event_types } from '../../../../../../../script.js';
 import { safeGenerateRaw } from '../../utils/responseExtractor.js';
 import { selected_group, getGroupMembers, groups } from '../../../../../../group-chats.js';
 import { executeSlashCommandsOnChatInput } from '../../../../../../../scripts/slash-commands.js';
@@ -161,6 +161,8 @@ export class EncounterModal {
         this.queue = [];
         this.lastSide = null;
         resetEncounter();
+        // The fight belongs to the chat it started in (see sameChat).
+        this.chatId = currentChatId();
         if (!this.modal) this.createModal();
         this.modal.classList.add('is-open');
         this.modal.setAttribute('data-environment', 'default');
@@ -1265,6 +1267,11 @@ export class EncounterModal {
             };
             const summaryPrompt = await buildCombatSummaryPrompt(lines, result, facts);
             const response = await safeGenerateRaw({ prompt: summaryPrompt, quietToLoud: false });
+            if (!this.sameChat()) {
+                // The chat changed while the summary was written: don't post it into another chat.
+                console.warn('[RPG Companion] Chat changed before the fight summary was ready; not posting it.');
+                return;
+            }
             if (!response) {
                 saveEncounterRecord(record);
                 this.updateCombatOverScreen(false);
@@ -1486,6 +1493,11 @@ export class EncounterModal {
             </div>`;
         loading.querySelector('#rpg-error-regenerate').addEventListener('click', () => this.regenerateLastRequest());
         loading.querySelector('#rpg-error-close').addEventListener('click', () => this.close());
+    }
+
+    /** Whether the chat the fight started in is still the open one. */
+    sameChat() {
+        return !this.chatId || currentChatId() === this.chatId;
     }
 
     close() {
@@ -1770,7 +1782,21 @@ export class EncounterModal {
     }
 }
 
+function currentChatId() {
+    try { return getCurrentChatId() || null; } catch { return null; }
+}
+
 export const encounterModal = new EncounterModal();
+
+// A fight left open when the chat changes is closed: its results belong to the chat it started in.
+try {
+    eventSource?.on?.(event_types?.CHAT_CHANGED, () => {
+        if (encounterModal.modal?.classList.contains('is-open') && !encounterModal.closed && !encounterModal.sameChat()) {
+            encounterModal.close();
+            toastr.info(t('encounter.ui.closedOnChatChange', 'The fight was closed because the chat changed.'));
+        }
+    });
+} catch { /* no event source (tests) */ }
 
 export function openEncounterModal() {
     encounterModal.open();

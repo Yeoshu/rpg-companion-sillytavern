@@ -467,6 +467,16 @@ description.
 
 ## 10. Storage
 
+Everything that belongs to one chat is listed once, in `CHAT_FIELDS`
+(`src/core/persistence.js`): user stats, attributes, skill levels, level, EXP,
+the combat sheet, stored stat blocks, the chat's NPC avatars, encounter logs,
+quests and quest history, and tracker item locks. Saving a chat writes exactly
+those fields; loading a chat sets every one of them to the chat's value or its
+default, so nothing carries over from the previous chat, and a brand-new chat
+starts at level 1 with default attributes. They are never written to the global
+settings (older settings files lose them on the next save). Tracker data that
+a chat doesn't have saved is reset too, then rebuilt from the chat's messages.
+
 | What | Where | Lifetime |
 |---|---|---|
 | The player's sheet (attributes, skills, bought values, abilities, items, resistances) | `chat_metadata.rpg_companion.sheet` | Per chat |

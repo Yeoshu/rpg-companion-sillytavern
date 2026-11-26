@@ -5,6 +5,7 @@
  */
 
 import { extensionSettings } from '../../core/state.js';
+import { saveChatData } from '../../core/persistence.js';
 import { repairJSON } from '../../utils/jsonRepair.js';
 
 /**
@@ -473,6 +474,8 @@ export function setItemLock(trackerType, itemPath, locked) {
     } else {
         delete current[finalKey];
     }
+    // Locks point at this chat's items (by position), so they are saved with the chat.
+    saveChatData();
 
     // console.log('[Lock Manager] Locked items after set:', JSON.stringify(extensionSettings.lockedItems, null, 2));
 }

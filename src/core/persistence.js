@@ -228,6 +228,61 @@ function normalizeSettings(savedSettings) {
     };
 }
 
+/**
+ * Everything that belongs to one chat. These fields live on extensionSettings
+ * while the chat is open, are saved to chat_metadata.rpg_companion, and are
+ * reset on every chat load: to the chat's saved value, or to the default when
+ * the chat has none. Nothing carries over from the previous chat, and none of
+ * them go into the global settings (see saveSettings).
+ *
+ * meta: key in chat_metadata.rpg_companion (defaults to the setting key)
+ * restore: turns the saved value into the live one (defaults to a deep copy)
+ */
+const CHAT_FIELDS = [
+    { key: 'userStats', fallback: () => cloneSerializable(DEFAULT_USER_STATS), restore: v => (isPlainObject(v) ? { ...cloneSerializable(v) } : null) },
+    { key: 'classicStats', fallback: () => cloneSerializable(DEFAULT_EXTENSION_SETTINGS.classicStats), restore: v => (isPlainObject(v) ? { ...v } : null) },
+    { key: 'skillLevels', fallback: () => ({}), restore: v => (isPlainObject(v) ? { ...v } : null) },
+    { key: 'level', fallback: () => 1, restore: v => (Number.isFinite(Number(v)) && Number(v) >= 1 ? Math.floor(Number(v)) : null) },
+    { key: 'exp', fallback: () => 0, restore: v => (Number.isFinite(Number(v)) ? Number(v) : null) },
+    { key: 'combatSheet', fallback: () => null },
+    { key: 'statBlocks', fallback: () => ({}), restore: v => (isPlainObject(v) ? cloneSerializable(v) : null) },
+    { key: 'chatNpcAvatars', meta: 'npcAvatars', fallback: () => ({}), restore: v => (isPlainObject(v) ? { ...v } : null) },
+    { key: 'encounterLogs', fallback: () => [], restore: v => (Array.isArray(v) ? cloneSerializable(v) : null) },
+    { key: 'resolvedQuests', fallback: () => [], restore: v => (Array.isArray(v) ? [...v] : null) },
+    { key: 'questHistory', fallback: () => [], restore: v => (Array.isArray(v) ? v.map(h => ({ ...h })) : null) },
+    { key: 'quests', fallback: () => ({ main: 'None', optional: [] }), restore: v => (v ? normalizeQuestsValue(v) : null) },
+    // Locks on tracker items: they point at this chat's items by position.
+    { key: 'lockedItems', fallback: () => cloneSerializable(DEFAULT_EXTENSION_SETTINGS.lockedItems), restore: v => (isPlainObject(v) ? cloneSerializable(v) : null) },
+    // Transient: quests the last tracker update marked completed, waiting for the review dialog.
+    { key: 'questsJustCompleted', fallback: () => [], transient: true }
+];
+
+/** Setting keys that belong to a chat (never saved globally). */
+export const CHAT_SETTING_KEYS = Object.freeze(CHAT_FIELDS.map(f => f.key));
+
+/** The per-chat fields of extensionSettings, as saved to chat_metadata. */
+function chatFieldsForSave() {
+    const out = {};
+    for (const field of CHAT_FIELDS) {
+        if (field.transient) continue;
+        const value = extensionSettings[field.key];
+        out[field.meta || field.key] = value === undefined ? field.fallback() : value;
+    }
+    return out;
+}
+
+/** Puts a chat's saved per-chat fields (or the defaults) on extensionSettings. */
+function applyChatFields(savedData) {
+    for (const field of CHAT_FIELDS) {
+        const saved = field.transient ? undefined : savedData?.[field.meta || field.key];
+        let value = null;
+        if (saved !== undefined && saved !== null) {
+            value = field.restore ? field.restore(saved) : cloneSerializable(saved);
+        }
+        extensionSettings[field.key] = value === null || value === undefined ? field.fallback() : value;
+    }
+}
+
 function isChatDataSaveReady() {
     return !!(
         chat_metadata
@@ -535,6 +590,10 @@ export function loadSettings() {
             }
 
             updateExtensionSettings(normalizedSettings);
+            // Older versions saved the last chat's data globally; it belongs to
+            // chats, so start from the defaults until a chat is loaded.
+            const hadChatData = CHAT_SETTING_KEYS.some(key => savedSettings[key] !== undefined);
+            applyChatFields(null);
 
             // Dice rolls used to be stored globally (and leaked into every chat);
             // they now live on chat messages. Drop the old global value.
@@ -546,7 +605,7 @@ export function loadSettings() {
 
             // Perform settings migrations based on version
             const currentVersion = extensionSettings.settingsVersion || 1;
-            let settingsChanged = normalizedResult.changed || droppedGlobalRoll;
+            let settingsChanged = normalizedResult.changed || droppedGlobalRoll || hadChatData;
 
             // Migration to version 2: Enable dynamic weather for existing users
             if (currentVersion < 2) {
@@ -709,7 +768,12 @@ export function saveSettings() {
         return;
     }
 
-    extension_settings[extensionName] = extensionSettings;
+    // Per-chat fields are saved with the chat (saveChatData), never globally.
+    const stored = {};
+    for (const [key, value] of Object.entries(extensionSettings)) {
+        if (!CHAT_SETTING_KEYS.includes(key)) stored[key] = value;
+    }
+    extension_settings[extensionName] = stored;
     saveSettingsDebounced();
 }
 
@@ -731,19 +795,8 @@ export function saveChatData() {
     // console.log('[RPG Companion] 💾 saveChatData RAW lastGeneratedData:', lastGeneratedData);
 
     chat_metadata.rpg_companion = {
-        userStats: extensionSettings.userStats,
-        classicStats: extensionSettings.classicStats,
-        skillLevels: extensionSettings.skillLevels || {},
-        level: extensionSettings.level,
-        exp: extensionSettings.exp || 0,
-        combatSheet: extensionSettings.combatSheet || null,
-        statBlocks: extensionSettings.statBlocks || {},
-        npcAvatars: extensionSettings.chatNpcAvatars || {},
-        encounterLogs: extensionSettings.encounterLogs || [],
-        resolvedQuests: extensionSettings.resolvedQuests || [],
-        questHistory: extensionSettings.questHistory || [],
+        ...chatFieldsForSave(),
         queuedDiceRoll: queuedDiceRoll,
-        quests: extensionSettings.quests,
         lastGeneratedData: lastGeneratedData,
         committedTrackerData: committedTrackerData,
         thoughtBasedExpressionPortraits: thoughtBasedExpressionPortraits,
@@ -979,82 +1032,10 @@ export function inheritSwipeDataFromPriorMessage(message, messageIndex) {
 export function loadChatData() {
     const savedData = chat_metadata?.rpg_companion;
 
-    if (!savedData) {
-        // Reset to defaults if no metadata exists, then try to rebuild from message swipe data below.
-        updateExtensionSettings({
-            userStats: {
-                health: 100,
-                satiety: 100,
-                energy: 100,
-                hygiene: 100,
-                arousal: 0,
-                mood: '😐',
-                conditions: 'None',
-                // Use v2 inventory format for defaults
-                inventory: {
-                    version: 2,
-                    onPerson: "None",
-                    clothing: "None",
-                    stored: {},
-                    assets: "None"
-                }
-            },
-            quests: {
-                main: "None",
-                optional: []
-            }
-        });
-        setLastGeneratedData({
-            userStats: null,
-            infoBox: null,
-            characterThoughts: null,
-            html: null
-        });
-        setCommittedTrackerData({
-            userStats: null,
-            infoBox: null,
-            characterThoughts: null
-        });
-        clearThoughtBasedExpressionPortraits();
-    }
-
-    // Restore stats
-    if (savedData?.userStats) {
-        extensionSettings.userStats = { ...savedData.userStats };
-    }
-
-    // Restore classic stats
-    if (savedData?.classicStats) {
-        extensionSettings.classicStats = { ...savedData.classicStats };
-    }
-
-    // Skill levels and any roll queued for the next message are per chat.
-    extensionSettings.skillLevels = savedData?.skillLevels ? { ...savedData.skillLevels } : {};
+    // Every per-chat field: the chat's own value, or the default. Nothing is
+    // left over from the previous chat.
+    applyChatFields(savedData);
     setQueuedDiceRoll(savedData?.queuedDiceRoll || null);
-
-    // Progression is per chat. Chats saved before EXP existed keep the current level.
-    if (Number.isFinite(savedData?.level)) extensionSettings.level = savedData.level;
-    extensionSettings.exp = Number(savedData?.exp) || 0;
-    // Unspent character points are computed from the sheet and the level budget
-    // (features/sheet.js); the old per-chat counter is no longer used.
-    extensionSettings.combatSheet = savedData?.combatSheet ? JSON.parse(JSON.stringify(savedData.combatSheet)) : null;
-    extensionSettings.encounterLogs = Array.isArray(savedData?.encounterLogs) ? JSON.parse(JSON.stringify(savedData.encounterLogs)) : [];
-    extensionSettings.statBlocks = savedData?.statBlocks && typeof savedData.statBlocks === 'object' ? JSON.parse(JSON.stringify(savedData.statBlocks)) : {};
-    // NPC avatars that belong to this chat (see utils/npcAvatars.js).
-    extensionSettings.chatNpcAvatars = savedData?.npcAvatars && typeof savedData.npcAvatars === 'object' ? { ...savedData.npcAvatars } : {};
-    extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
-    extensionSettings.questHistory = Array.isArray(savedData?.questHistory) ? savedData.questHistory.map(h => ({ ...h })) : [];
-
-    // Restore quests
-    if (savedData?.quests) {
-        extensionSettings.quests = normalizeQuestsValue(savedData.quests);
-    } else {
-        // Initialize with defaults if not present
-        extensionSettings.quests = {
-            main: "None",
-            optional: []
-        };
-    }
 
     // Restore committed tracker data first
     if (savedData?.committedTrackerData) {
@@ -1070,6 +1051,8 @@ export function loadChatData() {
         //     characterThoughtsType: typeof savedData.committedTrackerData.characterThoughts
         // });
         setCommittedTrackerData({ ...savedData.committedTrackerData });
+    } else {
+        setCommittedTrackerData({ userStats: null, infoBox: null, characterThoughts: null });
     }
 
     // Restore last generated data (for display)
@@ -1078,7 +1061,7 @@ export function loadChatData() {
         // console.log('[RPG Companion] 📥 loadChatData restoring lastGeneratedData');
         setLastGeneratedData({ ...savedData.lastGeneratedData });
     } else {
-        // console.log('[RPG Companion] ⚠️ No lastGeneratedData found in save');
+        setLastGeneratedData({ userStats: null, infoBox: null, characterThoughts: null, html: null });
     }
 
     if (savedData?.thoughtBasedExpressionPortraits && typeof savedData.thoughtBasedExpressionPortraits === 'object') {
