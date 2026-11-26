@@ -25,6 +25,7 @@ import { saveSettings } from '../../core/persistence.js';
 import { encounterRewards, grantExp } from '../features/experience.js';
 import { i18n } from '../../core/i18n.js';
 import { getSafeThumbnailUrl } from '../../utils/avatars.js';
+import { findCardInChat, getNpcAvatar } from '../../utils/npcAvatars.js';
 import {
     currentEncounter,
     updateCurrentEncounter,
@@ -1681,46 +1682,11 @@ export class EncounterModal {
      * @returns {string} Avatar URL or null
      */
     getCharacterAvatar(name) {
-        // Priority 1: Check custom uploaded avatars first (from Present Characters panel)
-        if (extensionSettings.npcAvatars && extensionSettings.npcAvatars[name]) {
-            return extensionSettings.npcAvatars[name];
-        }
-
-        // Priority 2: Check if character is in the current group
-        if (selected_group) {
-            const groupMembers = getGroupMembers(selected_group);
-            if (groupMembers && groupMembers.length > 0) {
-                const matchingMember = groupMembers.find(member =>
-                    member && member.name && member.name.toLowerCase() === name.toLowerCase()
-                );
-
-                if (matchingMember && matchingMember.avatar) {
-                    return getSafeThumbnailUrl('avatar', matchingMember.avatar);
-                }
-            }
-        }
-
-        // Priority 3: Search all loaded characters
-        if (characters && Array.isArray(characters)) {
-            const matchingChar = characters.find(char =>
-                char && char.name && char.name.toLowerCase() === name.toLowerCase()
-            );
-
-            if (matchingChar && matchingChar.avatar) {
-                return getSafeThumbnailUrl('avatar', matchingChar.avatar);
-            }
-        }
-
-        // Priority 4: Check if it's the current character
-        if (this_chid !== undefined && characters && characters[this_chid]) {
-            const currentChar = characters[this_chid];
-            if (currentChar.name && currentChar.name.toLowerCase() === name.toLowerCase()) {
-                return getSafeThumbnailUrl('avatar', currentChar.avatar);
-            }
-        }
-
-        // No avatar found
-        return null;
+        // A generated or uploaded avatar, then the card of a character in this chat.
+        const own = getNpcAvatar(name);
+        if (own) return own;
+        const card = findCardInChat(name);
+        return card ? getSafeThumbnailUrl('avatar', card.avatar) : null;
     }
 
     /**

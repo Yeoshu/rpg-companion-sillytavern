@@ -158,6 +158,7 @@ import { getAttributes } from './src/systems/mechanics/character.js';
 
 import { DEFAULT_HTML_PROMPT } from './src/systems/generation/promptBuilder.js';
 import { openEncounterModal } from './src/systems/ui/encounterUI.js';
+import { clearSharedNpcAvatars } from './src/utils/npcAvatars.js';
 
 // Integration modules
 import {
@@ -743,6 +744,23 @@ async function initUI() {
         updateFeatureTogglesVisibility();
     });
 
+    // Where NPC avatars are kept, and which character cards they may come from (utils/npcAvatars.js).
+    $('#rpg-npc-avatar-scope').on('change', function() {
+        extensionSettings.npcAvatarScope = $(this).val() === 'global' ? 'global' : 'chat';
+        saveSettings();
+    });
+    $('#rpg-toggle-avatars-all-cards').on('change', function() {
+        extensionSettings.avatarsFromAllCards = $(this).prop('checked');
+        saveSettings();
+        renderThoughts();
+    });
+    $('#rpg-clear-shared-avatars').on('click', function() {
+        const n = clearSharedNpcAvatars();
+        saveSettings();
+        renderThoughts();
+        toastr.info(`Cleared ${n} shared avatar${n === 1 ? '' : 's'}.`);
+    });
+
     // Auto avatar generation panel toggle
     $('#rpg-toggle-auto-avatars-panel').on('change', function() {
         extensionSettings.autoGenerateAvatars = $(this).prop('checked');
@@ -1177,6 +1195,8 @@ async function initUI() {
     $('#rpg-toggle-show-spotify-toggle').prop('checked', extensionSettings.showSpotifyToggle ?? true);
     $('#rpg-toggle-show-narrator-mode').prop('checked', extensionSettings.showNarratorMode ?? true);
     $('#rpg-toggle-show-auto-avatars').prop('checked', extensionSettings.showAutoAvatars ?? true);
+    $('#rpg-npc-avatar-scope').val(extensionSettings.npcAvatarScope === 'global' ? 'global' : 'chat');
+    $('#rpg-toggle-avatars-all-cards').prop('checked', Boolean(extensionSettings.avatarsFromAllCards));
 
     $('#rpg-toggle-randomized-plot').prop('checked', extensionSettings.enableRandomizedPlot ?? true);
     $('#rpg-toggle-natural-plot').prop('checked', extensionSettings.enableNaturalPlot ?? true);

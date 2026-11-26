@@ -1,6 +1,5 @@
 import { Fuse } from '../../../../../../lib.js';
 import {
-    characters,
     eventSource,
     event_types,
     generateQuietPrompt,
@@ -8,8 +7,7 @@ import {
     getRequestHeaders,
     online_status,
     substituteParams,
-    substituteParamsExtended,
-    this_chid
+    substituteParamsExtended
 } from '../../../../../../script.js';
 import {
     doExtrasFetch,
@@ -17,12 +15,11 @@ import {
     getApiUrl,
     modules
 } from '../../../../../extensions.js';
-import { selected_group, getGroupMembers } from '../../../../../group-chats.js';
 import { removeReasoningFromString } from '../../../../../reasoning.js';
 import { isJsonSchemaSupported } from '../../../../../textgen-settings.js';
 import { trimToEndSentence, trimToStartSentence, waitUntilCondition } from '../../../../../utils.js';
 import { generateWebLlmChatPrompt, isWebLlmSupported } from '../../../../../extensions/shared.js';
-import { namesMatch } from './presentCharacters.js';
+import { findCardInChat } from './npcAvatars.js';
 import { normalizeImageSrc } from './imageUrls.js';
 
 const EXPRESSIONS_EXTENSION_NAME = 'expressions';
@@ -192,38 +189,11 @@ export function resolveSpriteFolderNameForCharacter(characterName) {
     }
 
     const settings = getNormalizedExpressionsSettings();
-    const groupId = selected_group;
-
-    if (groupId) {
-        try {
-            const groupMembers = getGroupMembers(groupId) || [];
-            const matchingMember = groupMembers.find(member =>
-                member?.name && namesMatch(member.name, characterName));
-
-            const memberFolder = getAvatarFolderName(matchingMember?.avatar);
-            if (memberFolder) {
-                return resolveFolderOverride(memberFolder, settings.expressionOverrides);
-            }
-        } catch {
-            // Ignore group lookup issues and continue through the fallback chain.
-        }
-    }
-
-    if (Array.isArray(characters) && characters.length > 0) {
-        const matchingCharacter = characters.find(character =>
-            character?.name && namesMatch(character.name, characterName));
-
-        const characterFolder = getAvatarFolderName(matchingCharacter?.avatar);
-        if (characterFolder) {
-            return resolveFolderOverride(characterFolder, settings.expressionOverrides);
-        }
-    }
-
-    if (this_chid !== undefined && characters?.[this_chid]?.name && namesMatch(characters[this_chid].name, characterName)) {
-        const currentCharacterFolder = getAvatarFolderName(characters[this_chid].avatar);
-        if (currentCharacterFolder) {
-            return resolveFolderOverride(currentCharacterFolder, settings.expressionOverrides);
-        }
+    // Only characters who are in this chat (see utils/npcAvatars.js).
+    const card = findCardInChat(characterName);
+    const folder = getAvatarFolderName(card?.avatar);
+    if (folder) {
+        return resolveFolderOverride(folder, settings.expressionOverrides);
     }
 
     return '';

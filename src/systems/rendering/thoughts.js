@@ -23,6 +23,7 @@ import {
 import { isItemLocked, setItemLock } from '../generation/lockManager.js';
 import { renderAlternatePresentCharacters } from '../ui/alternatePresentCharacters.js';
 import { queueThoughtBasedExpressionsUpdate } from '../integration/thoughtBasedExpressions.js';
+import { setNpcAvatar } from '../../utils/npcAvatars.js';
 
 /**
  * Helper to generate lock icon HTML if setting is enabled
@@ -551,14 +552,10 @@ export function renderThoughts({ preserveScroll = false, useCommittedFallback = 
             reader.onload = function (e) {
                 const imageUrl = e.target.result;
 
-                // Store in npcAvatars
-                if (!extensionSettings.npcAvatars) {
-                    extensionSettings.npcAvatars = {};
-                }
-                extensionSettings.npcAvatars[characterName] = imageUrl;
-
-                // Save settings
+                // Stored with the chat or shared, per the avatar setting.
+                setNpcAvatar(characterName, imageUrl);
                 saveSettings();
+                saveChatData();
 
                 // Update the avatar image immediately
                 const $avatar = $thoughtsContainer.find(`.rpg-avatar-upload[data-character="${characterName}"] img`);
