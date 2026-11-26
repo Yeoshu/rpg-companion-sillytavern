@@ -19,7 +19,7 @@ import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { i18n } from '../../core/i18n.js';
 import {
-    normalizeProgression, expToNextLevel, addExp, questReward, questStepMultiplier, enemyReward
+    normalizeProgression, expToNextLevel, addExp, questReward, questStepMultiplier, questCapPercent, earlyMultiplier, enemyReward
 } from '../mechanics/progression.js';
 
 function t(key, fallback) {
@@ -237,7 +237,8 @@ async function askAboutDroppedQuests(dropped) {
     const range = (quest) => {
         const m = questStepMultiplier(quest.kind, quest.quest?.steps?.length, settings);
         const [min, max] = quest.kind === 'main' ? [settings.mainQuestMin, settings.mainQuestMax] : [settings.sideQuestMin, settings.sideQuestMax];
-        const r = v => Math.round(v * m * 10) / 10;
+        const cap = questCapPercent(settings) / earlyMultiplier(getProgressState().level, settings);
+        const r = v => Math.round(Math.min(v * m, cap) * 10) / 10;
         return `${r(min)}–${r(max)}%`;
     };
 

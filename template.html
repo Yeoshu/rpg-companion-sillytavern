@@ -660,7 +660,7 @@
                 <h4 data-i18n-key="template.settingsModal.progressionTitle"><i class="fa-solid fa-arrow-up-right-dots"
                         aria-hidden="true"></i> Progression</h4>
                 <small class="rpg-note" data-i18n-key="template.settingsModal.progression.note">
-                    Rewards are a percentage of the current EXP bar, so levelling keeps the same pace at every level. Quest rewards are rolled between the min and max, then scaled by the quest's steps: a quest with the typical number of steps gets the range, one with twice as many twice as much (quests without steps count as typical; 0 turns scaling off). An enemy gives the base % × the factor for each level it is above you (or ÷ for each level below). The fast start multiplies every reward at level 1 and fades out evenly (×2 over 4 levels: ×2, ×1.75, ×1.5, ×1.25, then ×1), so the first levels come quickly.
+                    Rewards are a percentage of the current EXP bar, so levelling keeps the same pace at every level. Quest rewards are rolled between the min and max, then scaled by the quest's steps: a quest with the typical number of steps gets the range, one with twice as many twice as much (quests without steps count as typical; 0 turns scaling off). With the cap on, no single quest gives more than that % of the bar, fast start included. An enemy gives the base % × the factor for each level it is above you (or ÷ for each level below). The fast start multiplies every reward at level 1 and fades out evenly (×2 over 4 levels: ×2, ×1.75, ×1.5, ×1.25, then ×1), so the first levels come quickly.
                 </small>
                 <div class="rpg-progression-grid">
                     <label class="rpg-progression-field">
@@ -690,6 +690,10 @@
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.progression.progSideSteps">Side quest, typical steps</span>
                         <input type="number" class="rpg-input" data-progression="sideQuestSteps" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span><input type="checkbox" id="rpg-toggle-quest-cap" /> <span data-i18n-key="template.settingsModal.progression.progQuestCap">Cap one quest at, % of bar</span></span>
+                        <input type="number" class="rpg-input" data-progression="questCap" min="1" step="5" />
                     </label>
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.progression.progEnemyBase">Enemy of your level, %</span>

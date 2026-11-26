@@ -70,3 +70,13 @@ test('settings are normalized', () => {
     assert.equal(n.expBase, DEFAULT_PROGRESSION.expBase);
     assert.equal(addExp({ level: 1, exp: 0, points: 0 }, 100, normalizeProgression({ pointsPerLevel: 5 })).points, 5);
 });
+
+test('one quest never gives more than the cap (75% of the bar by default)', () => {
+    assert.equal(questReward('main', 1, S, () => 0, 20), 75);           // 20% × 5 = 100% → 75%
+    assert.equal(questReward('main', 1, FAST, () => 0, 8), 75);         // 40% × 2 (fast start) = 80% → 75%
+    assert.equal(questReward('main', 1, S, () => 0, 8), 40);            // under the cap: untouched
+    assert.equal(questReward('main', 1, { ...S, questCapEnabled: false }, () => 0, 20), 100);
+    assert.equal(questReward('main', 1, { ...S, questCap: 50 }, () => 0, 20), 50);
+    assert.equal(normalizeProgression({}).questCapEnabled, true);
+    assert.equal(normalizeProgression({ questCapEnabled: false }).questCapEnabled, false);
+});

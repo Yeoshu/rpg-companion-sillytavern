@@ -290,6 +290,8 @@ export let extensionSettings = {
         sideQuestMax: 10,
         mainQuestSteps: 4,
         sideQuestSteps: 2,
+        questCapEnabled: true,
+        questCap: 75,
         enemyBase: 5,
         enemyLevelFactor: 1.3,
         earlyBoost: 2,

@@ -25,6 +25,9 @@ export const DEFAULT_PROGRESSION = Object.freeze({
      */
     mainQuestSteps: 4,
     sideQuestSteps: 2,
+    /** No single quest gives more than this % of the EXP bar (after steps and the fast start). */
+    questCapEnabled: true,
+    questCap: 75,
     /** Defeating an enemy of your own level, % of the EXP bar. */
     enemyBase: 5,
     /**
@@ -60,6 +63,8 @@ export function normalizeProgression(settings = {}) {
         sideQuestMax: num(settings.sideQuestMax, d.sideQuestMax),
         mainQuestSteps: Math.min(50, Math.floor(num(settings.mainQuestSteps, d.mainQuestSteps))),
         sideQuestSteps: Math.min(50, Math.floor(num(settings.sideQuestSteps, d.sideQuestSteps))),
+        questCapEnabled: settings.questCapEnabled === undefined ? d.questCapEnabled : Boolean(settings.questCapEnabled),
+        questCap: num(settings.questCap, d.questCap, 1),
         enemyBase: num(settings.enemyBase, d.enemyBase),
         enemyLevelFactor: num(settings.enemyLevelFactor, d.enemyLevelFactor, 1),
         earlyBoost: Math.min(10, num(settings.earlyBoost, d.earlyBoost, 1)),
@@ -90,10 +95,19 @@ export function earlyMultiplier(level, settings = DEFAULT_PROGRESSION) {
     return 1 + (boost - 1) * (levels - l + 1) / levels;
 }
 
-/** Converts a percentage of the bar to whole EXP (at least 1 for a positive %), with the fast start. */
-function percentOfBar(percent, level, settings) {
+/**
+ * Converts a percentage of the bar to whole EXP (at least 1 for a positive %), with the fast start.
+ * @param {number} [cap] - the most it may give, as a % of the bar (after the fast start)
+ */
+function percentOfBar(percent, level, settings, cap = Infinity) {
     if (percent <= 0) return 0;
-    return Math.max(1, Math.round(expToNextLevel(level, settings) * percent * earlyMultiplier(level, settings) / 100));
+    const boosted = Math.min(percent * earlyMultiplier(level, settings), cap);
+    return Math.max(1, Math.round(expToNextLevel(level, settings) * boosted / 100));
+}
+
+/** The quest reward cap, as a % of the bar (Infinity when off). */
+export function questCapPercent(settings = DEFAULT_PROGRESSION) {
+    return settings.questCapEnabled === false ? Infinity : (Number(settings.questCap) || Infinity);
 }
 
 /**
@@ -118,7 +132,7 @@ export function questStepMultiplier(kind, steps, settings = DEFAULT_PROGRESSION)
 export function questReward(kind, level, settings = DEFAULT_PROGRESSION, rng = Math.random, steps = 0) {
     const min = kind === 'main' ? settings.mainQuestMin : settings.sideQuestMin;
     const max = kind === 'main' ? settings.mainQuestMax : settings.sideQuestMax;
-    return percentOfBar((min + (max - min) * rng()) * questStepMultiplier(kind, steps, settings), level, settings);
+    return percentOfBar((min + (max - min) * rng()) * questStepMultiplier(kind, steps, settings), level, settings, questCapPercent(settings));
 }
 
 /** Reward multiplier for an enemy `enemyLevel` vs a player at `playerLevel`. */

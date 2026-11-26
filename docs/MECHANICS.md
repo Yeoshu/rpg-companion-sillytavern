@@ -159,6 +159,10 @@ the quest's steps (all of them, done or not): a 2-step main quest gives half,
 an 8-step one twice as much. A quest without steps counts as typical. Both
 numbers are in Settings → Progression; 0 turns the scaling off.
 
+**Quest cap.** However big the quest, one quest gives at most 75% of the EXP
+bar (after the steps and the fast start), so a padded quest can't hand out a
+whole level. The cap can be changed or switched off in Settings → Progression.
+
 **Fast start.** So a new character gets going quickly, every reward is
 multiplied at the first levels: ×2 at level 1, fading evenly to ×1 over four
 levels (×2, ×1.75, ×1.5, ×1.25, then ×1). Two main quests take you from
