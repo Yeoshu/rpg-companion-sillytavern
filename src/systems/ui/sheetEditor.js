@@ -24,7 +24,7 @@ import {
 import { describeAbility, describeTarget } from '../mechanics/combat/describe.js';
 import {
     applyParts, buildPlayerStatBlock, carriedEntries, classTemplateCost, currentParts, currentPersona,
-    deleteClassTemplate, deleteFromLibrary, downloadSnapshot, getClassTemplates, getCombatSettings, getLibrary,
+    allClassTemplates, deleteClassTemplate, deleteFromLibrary, downloadSnapshot, getClassTemplates, getCombatSettings, getLibrary,
     importClassTemplate, importToLibrary, itemStock, linkToPersona, partsFromSnapshot, partsWithClass, playerName,
     saveClassTemplate, saveToLibrary, sheetPoints, snapshotFrom, syncLinkedCharacter, unlinkPersona
 } from '../features/sheet.js';
@@ -212,19 +212,21 @@ export async function openSheetEditor() {
     };
 
     function classRows() {
-        const list = getClassTemplates();
-        if (!list.length) return `<div class="rpg-sheet-empty">${esc(t('sheet.classesEmpty', 'None yet. Build a level-1 character and save it as a class to reuse the build.'))}</div>`;
-        return list.map(e => {
-            const parts = partsFromSnapshot(e);
-            const cost = parts ? classTemplateCost(parts) : { spent: 0, budget: 0 };
-            const over = cost.spent > cost.budget;
+        return allClassTemplates().map(e => {
+            // Cost in this chat: only attributes and skills it tracks count (see partsWithClass).
+            const applied = partsWithClass(work, e);
+            const cost = applied ? classTemplateCost(applied.parts) : { spent: 0, budget: 0 };
+            const spent = applied?.trimmed ? applied.trimmed.from : cost.spent;
+            const chips = [];
+            if (e.builtin) chips.push(`<span class="rpg-sheet-chip">${esc(t('sheet.builtin', 'built-in'))}</span>`);
+            if (applied?.trimmed) chips.push(`<span class="rpg-sheet-chip rpg-sheet-chip-warn" title="${esc(t('sheet.classOverHint', 'Costs more than a level-1 character has with the current power level; trimmed to fit when applied'))}">${esc(t('sheet.classTrimmed', 'trimmed to {budget} CP').replace('{budget}', cost.budget))}</span>`);
             return `
-            <div class="rpg-sheet-library-row" data-id="${esc(e.id)}">
-                <span class="rpg-sheet-label">${esc(e.name)} <small>· ${cost.spent} CP · ${(e.abilities || []).length} ${esc(t('sheet.abilitiesShort', 'abilities'))}</small>${over ? ` <span class="rpg-sheet-chip rpg-sheet-chip-warn" title="${esc(t('sheet.classOverHint', 'Costs more than a level-1 character has with the current power level'))}">${esc(t('sheet.classOver', 'over the level-1 budget'))} (${cost.budget})</span>` : ''}</span>
+            <div class="rpg-sheet-library-row" data-id="${esc(e.id)}" title="${esc(e.description || '')}">
+                <span class="rpg-sheet-label">${esc(e.name)} <small>· ${spent} CP · ${(e.abilities || []).length} ${esc(t('sheet.abilitiesShort', 'abilities'))}</small> ${chips.join(' ')}${e.description ? `<br><small>${esc(e.description)}</small>` : ''}</span>
                 <button type="button" class="menu_button" data-action="class-apply" title="${esc(t('sheet.classApply', 'Use this build (replaces attributes, skills, abilities and items; on Save)'))}"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
-                <button type="button" class="menu_button" data-action="class-overwrite" title="${esc(t('sheet.overwrite', 'Overwrite with this character'))}"><i class="fa-solid fa-floppy-disk"></i></button>
+                ${e.builtin ? '' : `<button type="button" class="menu_button" data-action="class-overwrite" title="${esc(t('sheet.overwrite', 'Overwrite with this character'))}"><i class="fa-solid fa-floppy-disk"></i></button>`}
                 <button type="button" class="menu_button" data-action="class-export" title="${esc(t('sheet.export', 'Export as a file'))}"><i class="fa-solid fa-file-export"></i></button>
-                <button type="button" class="menu_button" data-action="class-delete" title="${esc(t('sheet.delete', 'Delete'))}"><i class="fa-solid fa-trash"></i></button>
+                ${e.builtin ? '' : `<button type="button" class="menu_button" data-action="class-delete" title="${esc(t('sheet.delete', 'Delete'))}"><i class="fa-solid fa-trash"></i></button>`}
             </div>`;
         }).join('');
     }
@@ -480,14 +482,16 @@ export async function openSheetEditor() {
     });
     $root.on('click', '.rpg-sheet-classes .rpg-sheet-library-row [data-action]', function () {
         const id = $(this).closest('.rpg-sheet-library-row').data('id');
-        const entry = getClassTemplates().find(e => e.id === id);
+        const entry = allClassTemplates().find(e => e.id === id);
         if (!entry) return;
         const action = $(this).data('action');
+        if (entry.builtin && (action === 'class-overwrite' || action === 'class-delete')) return;
         if (action === 'class-apply') {
-            const parts = partsWithClass(work, entry);
-            if (!parts) return;
-            work = parts;
-            toastr.info(t('sheet.classApplied', 'Build applied. Click Save to keep it in this chat.'), esc(entry.name));
+            const result = partsWithClass(work, entry);
+            if (!result) return;
+            work = result.parts;
+            const trimmed = result.trimmed ? ` ${t('sheet.classTrimmedToast', 'Trimmed from {from} to {to} CP to fit your power level.').replace('{from}', result.trimmed.from).replace('{to}', result.trimmed.to)}` : '';
+            toastr.info(t('sheet.classApplied', 'Build applied. Click Save to keep it in this chat.') + trimmed, esc(entry.name));
             rebuildPreservingScroll();
         } else if (action === 'class-overwrite') {
             saveClass(entry.name, entry.id);

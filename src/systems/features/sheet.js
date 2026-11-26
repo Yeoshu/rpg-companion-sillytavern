@@ -20,7 +20,8 @@ import { normalizeProgression } from '../mechanics/progression.js';
 import {
     BUYABLE, DAMAGE_TYPES, RESISTANCES, normalizeAbility, normalizeCombatSettings, normalizeStatBlock, normalizeStrike
 } from '../mechanics/combat/catalog.js';
-import { apCap, abilityCost, abilityPoints, levelBudget, statBlockPoints } from '../mechanics/combat/costs.js';
+import { apCap, abilityCost, abilityPoints, levelBudget, scaleToBudget, statBlockPoints } from '../mechanics/combat/costs.js';
+import { BUILTIN_CLASSES } from '../mechanics/classes.js';
 import { inventoryQuantity } from '../mechanics/combat/inventory.js';
 import { parseItems } from '../../utils/itemParser.js';
 
@@ -467,28 +468,70 @@ export function importClassTemplate(raw) {
     return entry;
 }
 
+/** Scales a stat block's purchases by `f` (attributes above 10, skills, bought values, ability dice and shields). */
+function shrinkBuild(block, f) {
+    const scale = (v, min = 0) => Math.max(min, Math.floor(v * f));
+    for (const [k, v] of Object.entries(block.attributes)) if (v > 10) block.attributes[k] = 10 + scale(v - 10);
+    for (const [k, v] of Object.entries(block.skills)) block.skills[k] = scale(v);
+    for (const [k, v] of Object.entries(block.bought)) {
+        if (v > 0) block.bought[k] = scale(v);
+        if (!block.bought[k]) delete block.bought[k];
+    }
+    for (const a of block.abilities) {
+        for (const e of a.effects) {
+            if ((e.type === 'damage' || e.type === 'heal') && e.dice) e.dice = scale(e.dice, 1);
+            if (e.type === 'shield') e.amount = scale(e.amount, 1);
+            const st = e.status;
+            if (st && st.dice) st.dice = scale(st.dice, 1);
+            if (st && st.template === 'shield') st.amount = scale(st.amount, 1);
+        }
+    }
+}
+
+/** Built-in classes (marked `builtin`) followed by the user's own. */
+export function allClassTemplates() {
+    return [...BUILTIN_CLASSES.map(c => ({ ...JSON.parse(JSON.stringify(c)), builtin: true })), ...getClassTemplates()];
+}
+
 /**
  * A working copy with a class template applied: the template's attributes,
  * skills, abilities, items, bought values, resistances and Strike replace the
- * current ones (tracked attributes it doesn't list go to 10, skills to 0).
- * The level, bonus points and glimmer points stay.
+ * current ones (tracked attributes it doesn't list go to 10, skills to 0;
+ * attributes and skills this chat doesn't track are left out). The level,
+ * bonus points and glimmer points stay. A build that costs more than a
+ * level-1 character has with the current power level is trimmed to fit.
+ * @returns {{ parts: object, trimmed: {from: number, to: number}|null }|null}
  */
 export function partsWithClass(work, template) {
     const parts = partsFromSnapshot(template);
     if (!parts) return null;
-    const attributes = Object.fromEntries(Object.keys(work.attributes || {}).map(k => [k, 10]));
-    const skills = Object.fromEntries(Object.keys(work.skills || {}).map(k => [k, 0]));
+    const tracked = (values, keys) => (keys.length ? Object.fromEntries(Object.entries(values).filter(([k]) => keys.includes(k))) : { ...values });
+    const attributeKeys = Object.keys(work.attributes || {});
+    const skillKeys = Object.keys(work.skills || {});
     const sheet = normalizeSheet({
         ...parts.sheet,
         bonusPoints: work.sheet?.bonusPoints || 0,
         glimmerPoints: work.sheet?.glimmerPoints || 0,
         glimmerPreferences: work.sheet?.glimmerPreferences || ''
     });
-    return {
+    const out = {
         ...work,
         sheet,
-        attributes: { ...attributes, ...parts.attributes },
-        skills: { ...skills, ...parts.skills }
+        attributes: { ...Object.fromEntries(attributeKeys.map(k => [k, 10])), ...tracked(parts.attributes, attributeKeys) },
+        skills: { ...Object.fromEntries(skillKeys.map(k => [k, 0])), ...tracked(parts.skills, skillKeys) }
     };
+    // Too big for this power level's level-1 budget: trim it like an NPC.
+    const { spent, budget } = classTemplateCost(out);
+    if (spent <= budget) return { parts: out, trimmed: null };
+    const progression = normalizeProgression(extensionSettings.progression);
+    const options = { tolerance: 1, skillCost: progression.skillCost, attributeCost: progression.attributeCost };
+    const block = buildPlayerStatBlock({ ...out, sheet: { ...sheet, bonusPoints: 0, glimmerPoints: 0 }, level: 1 });
+    // Shrink everything in proportion first, so the build keeps its shape,
+    // then let the NPC trimmer shave off whatever is still over.
+    shrinkBuild(block, budget / spent);
+    scaleToBudget(block, budget, options);
+    for (const k of Object.keys(out.attributes)) if (block.attributes[k] !== undefined) out.attributes[k] = block.attributes[k];
+    for (const k of Object.keys(out.skills)) if (block.skills[k] !== undefined) out.skills[k] = block.skills[k];
+    out.sheet = normalizeSheet({ ...sheet, bought: block.bought, abilities: block.abilities });
+    return { parts: out, trimmed: { from: spent, to: classTemplateCost(out).spent } };
 }
-

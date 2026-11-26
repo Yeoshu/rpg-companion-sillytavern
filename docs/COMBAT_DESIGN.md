@@ -489,9 +489,29 @@ description.
   at level 1, and refuses builds that cost more than a level-1 character has
   (the power level's starting pool). Applying one replaces those parts of the
   sheet; the name, level, bonus and glimmer points stay, so a level-3
-  character keeps the CP it has on top. A class that costs more than the
-  current power level allows is flagged. Templates import and export like
+  character keeps the CP it has on top. Attributes and skills the chat
+  doesn't track are left out. A class that costs more than the current power
+  level allows is trimmed when applied: everything shrinks in proportion
+  (attributes above 10, skills, bought values, ability dice and shields), then
+  the NPC trimmer shaves off any remainder. Templates import and export like
   saved characters.
+- **Built-in classes** (`src/systems/mechanics/classes.js`): Fighter, Rogue,
+  Mage, Healer and Ranger, made for Heroic (83–97 CP of 100, every ability
+  within the AP guide of 40, leaving a little to personalise). They can be
+  applied and exported but not changed or deleted. Simulated at level 1 with
+  the local tactics (300 fights each):
+
+  | Class | 1 standard | 2 standard | elite | boss | 3 minions |
+  |---|---|---|---|---|---|
+  | Fighter | 100% | 63% | 98% | 41% | 96% |
+  | Rogue | 99% | 47% | 91% | 51% | 78% |
+  | Mage | 96% | 45% | 83% | 38% | 75% |
+  | Ranger | 100% | 54% | 94% | 42% | 88% |
+  | Healer | 100% | 5% | 100% | 56% | 67% |
+
+  The Healer's numbers understate it: the local tactics keep healing itself
+  instead of attacking when two enemies outdamage the heal. Played by a
+  person, or with allies to heal, it does much better.
 
 **Stat block schema** (the same for the player, allies and enemies):
 
