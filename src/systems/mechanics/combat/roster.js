@@ -60,6 +60,11 @@ export function buildRoster(raw, { playerName = '', pointsPerLevel = 5, settings
                 delete block.end;
             } else {
                 block.storedKey = storeKey(stored.name);
+                // Unless wounds are kept, a saved character starts every fight fresh.
+                if (!s.keepWounds) {
+                    delete block.hp;
+                    delete block.end;
+                }
             }
             return block;
         }

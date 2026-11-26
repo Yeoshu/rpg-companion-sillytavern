@@ -137,6 +137,8 @@ export const DEFAULT_COMBAT = Object.freeze({
     glimmerMaxPerFight: 1,
     /** Trim encounters that are too much (swarms, reserves); see balance.js. */
     balanceEncounters: true,
+    /** Saved characters keep their wounds (HP and END) from one fight to the next. Off: they start each fight fresh. */
+    keepWounds: false,
     /** The lowest acceptable chance (%) to win a fight, as estimated by simulation. */
     targetWinChance: 65,
     /** Which attribute plays each role in the derived values. */
@@ -162,6 +164,7 @@ export function normalizeCombatSettings(settings = {}) {
         glimmerChance: clamp(settings.glimmerChance, 0, 100, d.glimmerChance),
         glimmerMaxPerFight: Math.round(clamp(settings.glimmerMaxPerFight, 0, 20, d.glimmerMaxPerFight)),
         balanceEncounters: settings.balanceEncounters === undefined ? d.balanceEncounters : Boolean(settings.balanceEncounters),
+        keepWounds: settings.keepWounds === undefined ? d.keepWounds : Boolean(settings.keepWounds),
         targetWinChance: clamp(settings.targetWinChance, 0, 99, d.targetWinChance),
         tiers: Object.fromEntries(Object.entries(TIERS).map(([id, def]) => [id, {
             label: def.label,

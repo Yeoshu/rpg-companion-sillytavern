@@ -133,7 +133,7 @@ export class EncounterModal {
                 ${found.map((b, i) => `
                     <label class="checkbox_label">
                         <input type="checkbox" data-known="${i}" checked>
-                        <span><strong>${esc(b.name)}</strong> <small>${b.template ? esc(t('npc.template', 'template')) : `${esc(t('encounter.ui.levelShort', 'Lv'))} ${b.level}${b.hp !== undefined ? ` · ${b.hp} HP` : ''}`}${b.description ? ` · ${esc(b.description)}` : ''}</small></span>
+                        <span><strong>${esc(b.name)}</strong> <small>${b.template ? esc(t('npc.template', 'template')) : `${esc(t('encounter.ui.levelShort', 'Lv'))} ${b.level}${b.hp !== undefined && getCombatSettings().keepWounds ? ` · ${b.hp} HP` : ''}`}${b.description ? ` · ${esc(b.description)}` : ''}</small></span>
                     </label>`).join('')}
             </div>`);
         const result = await callGenericPopup($dialog, POPUP_TYPE.CONFIRM, '', {
@@ -1231,7 +1231,7 @@ export class EncounterModal {
         try {
             this.showCombatOverScreen(result);
             this.awardCombatExp(result);
-            rememberWounds(this.state.combatants.map(c => ({ ...c, hp: Math.max(1, c.hp) })));
+            if (getCombatSettings().keepWounds) rememberWounds(this.state.combatants.map(c => ({ ...c, hp: Math.max(1, c.hp) })));
             const aftermath = applyAftermath(this.state);
             const facts = aftermath ? describeAftermath(aftermath.out, this.player.name, aftermath) : '';
             this.showAftermath(aftermath);
@@ -1361,7 +1361,7 @@ export class EncounterModal {
                 const c = getCombatant(this.state, row.dataset.id);
                 const choice = row.querySelector('select').value;
                 if (choice === 'chat') {
-                    saveChatBlock(c.block, c.hp < c.maxHp && !c.swarm ? { hp: Math.max(1, c.hp), end: c.end } : {});
+                    saveChatBlock(c.block, getCombatSettings().keepWounds && c.hp < c.maxHp && !c.swarm ? { hp: Math.max(1, c.hp), end: c.end } : {});
                     saved++;
                 } else if (choice === 'template') {
                     saveTemplate(c.block);

@@ -554,6 +554,10 @@ async function initUI() {
         extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), balanceEncounters: $(this).prop('checked') });
         saveSettings();
     });
+    $('#rpg-toggle-keep-wounds').on('change', function() {
+        extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), keepWounds: $(this).prop('checked') });
+        saveSettings();
+    });
     $('#rpg-toggle-sync-tracker').on('change', function() {
         extensionSettings.combat = normalizeCombatSettings({ ...getCombatSettings(), syncTracker: $(this).prop('checked') });
         saveSettings();
@@ -1335,6 +1339,7 @@ function fillCombatInputs() {
     $('#rpg-toggle-sync-tracker').prop('checked', values.syncTracker);
     $('#rpg-toggle-glimmers').prop('checked', values.glimmerEnabled);
     $('#rpg-toggle-balance-encounters').prop('checked', values.balanceEncounters);
+    $('#rpg-toggle-keep-wounds').prop('checked', values.keepWounds);
     const attributes = getAttributes();
     $('[data-combat-role]').each(function() {
         const role = $(this).data('combat-role');

@@ -140,3 +140,19 @@ test('roster: "count" makes copies of normal creatures and a swarm of tiny ones;
     assert.equal(roster.enemies[3].swarm, 6);
     assert.equal(roster.enemies[4].reserve, true);
 });
+
+test('saved characters start fresh unless wounds are kept; templates always do', () => {
+    const known = [
+        { ...normalizeStatBlock({ name: 'Grak', attributes: { con: 12 } }), hp: 7, end: 3 },
+        { ...normalizeStatBlock({ name: 'Wolf' }), hp: 4, template: true }
+    ];
+    const raw = { enemies: [{ name: 'Grak' }, { name: 'Wolf' }] };
+    const fresh = buildRoster(raw, { settings: normalizeCombatSettings({}), known });
+    assert.equal(fresh.enemies[0].hp, undefined);
+    assert.equal(fresh.enemies[0].storedKey, 'grak');
+    assert.equal(fresh.enemies[1].hp, undefined);
+    const kept = buildRoster(raw, { settings: normalizeCombatSettings({ keepWounds: true }), known });
+    assert.equal(kept.enemies[0].hp, 7);
+    assert.equal(kept.enemies[0].end, 3);
+    assert.equal(kept.enemies[1].hp, undefined);
+});

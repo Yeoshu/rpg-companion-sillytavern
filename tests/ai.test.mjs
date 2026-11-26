@@ -100,7 +100,7 @@ test('recurring characters: matching, generic names, roster substitution', () =>
     const roster = buildRoster({
         party: [{ name: 'Mira', existing: true }],
         enemies: [{ name: 'Goblin', existing: true }, { name: 'Goblin', existing: true }, { name: 'Ogre', hp: 999, attributes: { str: 20 } }, { name: 'Mira' }]
-    }, { known: blocks, pointsPerLevel: 5 });
+    }, { known: blocks, pointsPerLevel: 5, settings: { keepWounds: true } });
     assert.deepEqual(roster.party.map(b => [b.name, b.hp, b.storedKey]), [['Mira', 12, 'mira']]);
     assert.deepEqual(roster.enemies.map(b => b.name), ['Goblin 1', 'Goblin 2', 'Ogre']);
     assert.equal(roster.enemies[0].fromTemplate, 'goblin');

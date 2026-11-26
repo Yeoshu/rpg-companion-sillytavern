@@ -58,14 +58,14 @@ export async function openStatBlockManager() {
 
     const row = (block, kind, key) => {
         const d = deriveValues(block, settings);
-        const hp = block.hp !== undefined && block.hp < d.maxHp ? `${block.hp}/${d.maxHp}` : `${d.maxHp}`;
+        const hp = settings.keepWounds && block.hp !== undefined && block.hp < d.maxHp ? `${block.hp}/${d.maxHp}` : `${d.maxHp}`;
         return `
             <div class="rpg-sheet-card" data-kind="${kind}" data-key="${esc(key)}">
                 <div class="rpg-sheet-card-head">
                     <strong>${esc(block.sprite || '')} ${esc(block.name)} <small class="rpg-sheet-dim">· ${esc(t('sheet.level', 'Level'))} ${block.level} · ${esc(block.tier)}</small></strong>
                     <span class="rpg-sheet-card-actions">
                         <button type="button" class="menu_button" data-npc="edit" title="${esc(t('sheet.edit', 'Edit'))}"><i class="fa-solid fa-pen"></i></button>
-                        ${kind === 'chat' ? `<button type="button" class="menu_button" data-npc="rest" title="${esc(t('npc.rest', 'Restore HP and END'))}"><i class="fa-solid fa-bed"></i></button>` : ''}
+                        ${kind === 'chat' && settings.keepWounds ? `<button type="button" class="menu_button" data-npc="rest" title="${esc(t('npc.rest', 'Restore HP and END'))}"><i class="fa-solid fa-bed"></i></button>` : ''}
                         ${kind === 'chat' ? `<button type="button" class="menu_button" data-npc="template" title="${esc(t('npc.makeTemplate', 'Also save as a template for any chat'))}"><i class="fa-solid fa-clone"></i></button>` : ''}
                         <button type="button" class="menu_button" data-npc="delete" title="${esc(t('sheet.delete', 'Delete'))}"><i class="fa-solid fa-trash"></i></button>
                     </span>
@@ -82,7 +82,7 @@ export async function openStatBlockManager() {
         $root.html(`
             <h3><i class="fa-solid fa-users-viewfinder"></i> ${esc(t('npc.title', 'Recurring characters'))}</h3>
             <section class="rpg-sheet-section">
-                <h4>${esc(t('npc.chat', 'In this chat'))} <small>${esc(t('npc.chatHint', 'named characters; they keep their wounds between fights'))}</small></h4>
+                <h4>${esc(t('npc.chat', 'In this chat'))} <small>${esc(settings.keepWounds ? t('npc.chatHint', 'named characters; they keep their wounds between fights') : t('npc.chatHintFresh', 'named characters; they start each fight at full health'))}</small></h4>
                 <div class="rpg-sheet-cards">${chat.map(([key, b]) => row(b, 'chat', key)).join('') || `<div class="rpg-sheet-empty">${esc(t('npc.noneChat', 'None yet. After a fight you can save who took part.'))}</div>`}</div>
             </section>
             <section class="rpg-sheet-section">
