@@ -4826,3 +4826,10 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
     display: block;
     opacity: 0.6;
 }
+
+/* NPC avatar settings */
+#rpg-clear-shared-avatars {
+    width: fit-content;
+    white-space: nowrap;
+    margin: 4px 0 10px;
+}

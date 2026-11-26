@@ -738,6 +738,7 @@ export function saveChatData() {
         exp: extensionSettings.exp || 0,
         combatSheet: extensionSettings.combatSheet || null,
         statBlocks: extensionSettings.statBlocks || {},
+        npcAvatars: extensionSettings.chatNpcAvatars || {},
         encounterLogs: extensionSettings.encounterLogs || [],
         resolvedQuests: extensionSettings.resolvedQuests || [],
         questHistory: extensionSettings.questHistory || [],
@@ -1039,6 +1040,8 @@ export function loadChatData() {
     extensionSettings.combatSheet = savedData?.combatSheet ? JSON.parse(JSON.stringify(savedData.combatSheet)) : null;
     extensionSettings.encounterLogs = Array.isArray(savedData?.encounterLogs) ? JSON.parse(JSON.stringify(savedData.encounterLogs)) : [];
     extensionSettings.statBlocks = savedData?.statBlocks && typeof savedData.statBlocks === 'object' ? JSON.parse(JSON.stringify(savedData.statBlocks)) : {};
+    // NPC avatars that belong to this chat (see utils/npcAvatars.js).
+    extensionSettings.chatNpcAvatars = savedData?.npcAvatars && typeof savedData.npcAvatars === 'object' ? { ...savedData.npcAvatars } : {};
     extensionSettings.resolvedQuests = Array.isArray(savedData?.resolvedQuests) ? [...savedData.resolvedQuests] : [];
     extensionSettings.questHistory = Array.isArray(savedData?.questHistory) ? savedData.questHistory.map(h => ({ ...h })) : [];
 

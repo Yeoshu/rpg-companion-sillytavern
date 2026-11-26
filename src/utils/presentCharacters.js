@@ -1,5 +1,3 @@
-import { this_chid, characters } from '../../../../../../script.js';
-import { selected_group, getGroupMembers } from '../../../../../group-chats.js';
 import {
     extensionSettings,
     lastGeneratedData,
@@ -7,6 +5,7 @@ import {
     FALLBACK_AVATAR_DATA_URI
 } from '../core/state.js';
 import { getSafeThumbnailUrl } from './avatars.js';
+import { findCardInChat, getNpcAvatar, namesMatch } from './npcAvatars.js';
 
 export function stripBrackets(value) {
     if (typeof value !== 'string') return value;
@@ -27,20 +26,7 @@ export function toSnakeCase(name) {
         .replace(/^_+|_+$/g, '');
 }
 
-export function namesMatch(cardName, aiName) {
-    if (!cardName || !aiName) return false;
-
-    if (cardName.toLowerCase() === aiName.toLowerCase()) return true;
-
-    const stripParens = (s) => s.replace(/\s*\([^)]*\)/g, '').trim();
-    const cardCore = stripParens(cardName).toLowerCase();
-    const aiCore = stripParens(aiName).toLowerCase();
-    if (cardCore === aiCore) return true;
-
-    const escapedCardCore = cardCore.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const wordBoundary = new RegExp(`\\b${escapedCardCore}\\b`);
-    return wordBoundary.test(aiCore);
-}
+export { namesMatch };
 
 export function isPresentCharactersEnabled() {
     return !!(
@@ -192,53 +178,9 @@ export function parsePresentCharacters(characterThoughtsData, { enabledFields = 
 }
 
 export function resolvePresentCharacterPortrait(name) {
-    let characterPortrait = FALLBACK_AVATAR_DATA_URI;
-
-    if (!name) {
-        return characterPortrait;
-    }
-
-    if (extensionSettings.npcAvatars && extensionSettings.npcAvatars[name]) {
-        return extensionSettings.npcAvatars[name];
-    }
-
-    if (selected_group) {
-        try {
-            const groupMembers = getGroupMembers(selected_group);
-            const matchingMember = groupMembers?.find(member =>
-                member && member.name && namesMatch(member.name, name)
-            );
-
-            if (matchingMember?.avatar && matchingMember.avatar !== 'none') {
-                const thumbnailUrl = getSafeThumbnailUrl('avatar', matchingMember.avatar);
-                if (thumbnailUrl) {
-                    return thumbnailUrl;
-                }
-            }
-        } catch {
-            // Ignore avatar lookup issues and continue through fallback chain.
-        }
-    }
-
-    if (characters?.length > 0) {
-        const matchingCharacter = characters.find(character =>
-            character && character.name && namesMatch(character.name, name)
-        );
-
-        if (matchingCharacter?.avatar && matchingCharacter.avatar !== 'none') {
-            const thumbnailUrl = getSafeThumbnailUrl('avatar', matchingCharacter.avatar);
-            if (thumbnailUrl) {
-                return thumbnailUrl;
-            }
-        }
-    }
-
-    if (this_chid !== undefined && characters?.[this_chid]?.name && namesMatch(characters[this_chid].name, name)) {
-        const thumbnailUrl = getSafeThumbnailUrl('avatar', characters[this_chid].avatar);
-        if (thumbnailUrl) {
-            return thumbnailUrl;
-        }
-    }
-
-    return characterPortrait;
+    if (!name) return FALLBACK_AVATAR_DATA_URI;
+    const own = getNpcAvatar(name);
+    if (own) return own;
+    const card = findCardInChat(name);
+    return (card && getSafeThumbnailUrl('avatar', card.avatar)) || FALLBACK_AVATAR_DATA_URI;
 }

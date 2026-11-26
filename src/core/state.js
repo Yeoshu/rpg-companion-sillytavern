@@ -309,7 +309,10 @@ export let extensionSettings = {
         stored: 'list',   // 'list' or 'grid' view mode for Stored section
         assets: 'list'    // 'list' or 'grid' view mode for Assets section
     },
-    npcAvatars: {}, // Store custom avatar images for NPCs (key: character name, value: base64 data URI)
+    npcAvatars: {}, // NPC avatars shared by every chat (key: character name, value: image URL or data URI)
+    chatNpcAvatars: {}, // NPC avatars of the current chat (saved in chat_metadata; see utils/npcAvatars.js)
+    npcAvatarScope: 'chat', // Where new generated/uploaded NPC avatars go: 'chat' or 'global'
+    avatarsFromAllCards: false, // Use any imported card's picture for an NPC with the same name (not only this chat's characters)
     // Combat encounter settings
     encounterSettings: {
         enabled: true, // Show Start Encounter button above chat input

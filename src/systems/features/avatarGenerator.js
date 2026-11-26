@@ -9,12 +9,11 @@
  * - Manual regeneration support
  */
 
-import { characters, this_chid } from '../../../../../../../script.js';
 import { safeGenerateRaw } from '../../utils/responseExtractor.js';
 import { executeSlashCommandsOnChatInput } from '../../../../../../../scripts/slash-commands.js';
-import { selected_group, getGroupMembers } from '../../../../../../group-chats.js';
 import { extensionSettings, sessionAvatarPrompts, setSessionAvatarPrompt } from '../../core/state.js';
-import { saveSettings } from '../../core/persistence.js';
+import { saveChatData, saveSettings } from '../../core/persistence.js';
+import { deleteNpcAvatar, findCardInChat, getNpcAvatar, setNpcAvatar } from '../../utils/npcAvatars.js';
 import { generateAvatarPromptGenerationPrompt } from '../generation/promptBuilder.js';
 import { getCurrentPresetName, switchToPreset, generateWithExternalAPI } from '../generation/apiClient.js';
 
@@ -48,74 +47,12 @@ export function getPendingGenerations() {
 }
 
 /**
- * Helper to check if two character names match (case-insensitive, handles partial matches)
- * @param {string} cardName - Name from character card
- * @param {string} aiName - Name from AI response
- * @returns {boolean} True if names match
- */
-function namesMatch(cardName, aiName) {
-    if (!cardName || !aiName) return false;
-    const cardLower = cardName.toLowerCase().trim();
-    const aiLower = aiName.toLowerCase().trim();
-    if (cardLower === aiLower) return true;
-    const cardCore = cardLower.split(/[\s,'"]+/)[0];
-    const aiCore = aiLower.split(/[\s,'"]+/)[0];
-    if (cardCore === aiCore) return true;
-    const escapedCardCore = cardCore.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const wordBoundary = new RegExp(`\\b${escapedCardCore}\\b`);
-    return wordBoundary.test(aiCore);
-}
-
-/**
  * Checks if a character already has an avatar (custom NPC avatar or from character card)
  * @param {string} characterName - Name of character to check
  * @returns {boolean} True if character has an avatar
  */
 export function hasExistingAvatar(characterName) {
-    // Check for custom NPC avatar first
-    if (extensionSettings.npcAvatars && extensionSettings.npcAvatars[characterName]) {
-        const avatar = extensionSettings.npcAvatars[characterName];
-        if (typeof avatar === 'string' && avatar) {
-            return true;
-        }
-    }
-
-    // Check group members for avatar
-    if (selected_group) {
-        try {
-            const groupMembers = getGroupMembers(selected_group);
-            if (groupMembers && groupMembers.length > 0) {
-                const matchingMember = groupMembers.find(member =>
-                    member && member.name && namesMatch(member.name, characterName)
-                );
-                if (matchingMember && matchingMember.avatar && matchingMember.avatar !== 'none') {
-                    return true;
-                }
-            }
-        } catch (e) {
-            // Ignore errors
-        }
-    }
-
-    // Check all characters for avatar
-    if (characters && characters.length > 0) {
-        const matchingCharacter = characters.find(c =>
-            c && c.name && namesMatch(c.name, characterName)
-        );
-        if (matchingCharacter && matchingCharacter.avatar && matchingCharacter.avatar !== 'none') {
-            return true;
-        }
-    }
-
-    // Check current character in 1-on-1 chat
-    if (this_chid !== undefined && characters[this_chid] &&
-        characters[this_chid].name && namesMatch(characters[this_chid].name, characterName)) {
-        if (characters[this_chid].avatar && characters[this_chid].avatar !== 'none') {
-            return true;
-        }
-    }
-
-    return false;
+    return Boolean(getNpcAvatar(characterName) || findCardInChat(characterName));
 }
 
 /**
@@ -211,9 +148,10 @@ export async function regenerateAvatar(characterName) {
     pendingGenerations.add(characterName);
 
     // Clear existing avatar
-    if (extensionSettings.npcAvatars && extensionSettings.npcAvatars[characterName]) {
-        delete extensionSettings.npcAvatars[characterName];
+    if (getNpcAvatar(characterName)) {
+        deleteNpcAvatar(characterName);
         saveSettings();
+        saveChatData();
     }
 
     // Clear existing prompt cache
@@ -332,11 +270,9 @@ async function generateSingleAvatar(characterName, prompt = null) {
 
         if (imageUrl) {
             // Store the avatar
-            if (!extensionSettings.npcAvatars) {
-                extensionSettings.npcAvatars = {};
-            }
-            extensionSettings.npcAvatars[characterName] = imageUrl;
+            setNpcAvatar(characterName, imageUrl);
             saveSettings();
+            saveChatData();
 
             // console.log(`[RPG Avatar] Successfully generated avatar for: ${characterName}`);
             return imageUrl;

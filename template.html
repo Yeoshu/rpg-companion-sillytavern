@@ -464,6 +464,28 @@
                     Display a toggle button to automatically generate avatars for characters without images.
                 </small>
 
+                <label class="rpg-progression-field">
+                    <span data-i18n-key="template.settingsModal.display.avatarScope">Generated and uploaded NPC avatars belong to</span>
+                    <select id="rpg-npc-avatar-scope" class="rpg-input">
+                        <option value="chat" data-i18n-key="template.settingsModal.display.avatarScopeChat">This chat only</option>
+                        <option value="global" data-i18n-key="template.settingsModal.display.avatarScopeGlobal">Every chat</option>
+                    </select>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.display.avatarScopeNote">
+                    This chat only: a new chat starts without them, so an NPC with the same name in another story gets its own picture. Avatars saved earlier for every chat still show everywhere until you clear them.
+                </small>
+                <button type="button" id="rpg-clear-shared-avatars" class="menu_button">
+                    <i class="fa-solid fa-broom"></i>&nbsp;<span data-i18n-key="template.settingsModal.display.clearSharedAvatars">Clear avatars shared by every chat</span>
+                </button>
+
+                <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-avatars-all-cards" />
+                    <span data-i18n-key="template.settingsModal.display.avatarsAllCards">Use pictures from any character card with the same name</span>
+                </label>
+                <small class="rpg-note rpg-note-indented" data-i18n-key="template.settingsModal.display.avatarsAllCardsNote">
+                    Off: an NPC only gets a card's picture if that character is in this chat (the chat's character or a group member). On: any imported card with a matching name is used.
+                </small>
+
                 <label class="checkbox_label">
                     <input type="checkbox" id="rpg-toggle-randomized-plot" />
                     <span data-i18n-key="template.settingsModal.display.showRandomizedPlot">Show Randomized Plot Progression</span>
