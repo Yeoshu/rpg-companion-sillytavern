@@ -8,6 +8,7 @@ import { chat, characters, this_chid, substituteParams } from '../../../../../..
 import { selected_group, getGroupMembers, groups } from '../../../../../../group-chats.js';
 import { extensionSettings, committedTrackerData } from '../../core/state.js';
 import { currentEncounter } from '../features/encounterState.js';
+import { playerPronouns } from '../features/sheet.js';
 import { repairJSON } from '../../utils/jsonRepair.js';
 import { isPresentCharactersEnabled } from '../../utils/presentCharacters.js';
 import { buildInventorySummary, generateTrackerInstructions, generateTrackerExample, buildAttributesString } from './promptBuilder.js';
@@ -273,6 +274,7 @@ export async function buildEncounterInitPrompt(setup = {}) {
     }
 
     systemMessage += `\n</persona>\n\n`;
+    if (playerPronouns()) systemMessage += `${userName}'s pronouns: ${playerPronouns()}.\n\n`;
 
     // Add chat history from before the encounter
     systemMessage += `Here is the chat history from before the encounter started between the user and the assistant:\n`;
@@ -460,6 +462,7 @@ export async function buildCombatSummaryPrompt(combatLog, result, aftermath = ''
     }
 
     systemMessage += `\n</persona>\n\n`;
+    if (playerPronouns()) systemMessage += `${userName}'s pronouns: ${playerPronouns()}.\n\n`;
 
     // Add the message that triggered the encounter
     if (currentEncounter.encounterStartMessage) {

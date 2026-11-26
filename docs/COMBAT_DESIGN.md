@@ -474,6 +474,12 @@ description.
 | Saved character sheets and NPC templates | `extensionSettings.sheetLibrary` | Global |
 | Encounter logs | `chat_metadata.rpg_companion.encounterLogs`, last 10 | Per chat (fixes the logs that are lost today) |
 
+**Pronouns:** the sheet has a Pronouns field (e.g. "she/her"). It is added to
+the player's line in every in-fight prompt ("Lem (the user's character,
+she/her, healthy)"), to the end-of-fight summary and to the Attempt and Task
+roll text, so the AI doesn't guess from the name. Saved characters and the
+persona link carry it; class templates don't.
+
 **Library behaviour:**
 - Loading a sheet from the library **copies** it into the chat.
 - "Save to library" writes it back, either overwriting the entry or as a copy.

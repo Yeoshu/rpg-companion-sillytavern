@@ -32,7 +32,7 @@ export function getCombatSettings() {
 }
 
 export function emptySheet() {
-    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0, strike: normalizeStrike(null), glimmerPoints: 0, glimmerPreferences: '' };
+    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0, strike: normalizeStrike(null), glimmerPoints: 0, glimmerPreferences: '', pronouns: '' };
 }
 
 /** Cleans a stored sheet (abilities and items go through the catalog sanitizers). */
@@ -53,6 +53,8 @@ export function normalizeSheet(raw) {
     // Glimmered abilities come with bonus CP equal to their cost when found.
     sheet.glimmerPoints = Math.max(0, Math.round(Number(raw.glimmerPoints) || 0));
     sheet.glimmerPreferences = String(raw.glimmerPreferences ?? '').slice(0, 1000);
+    // Told to the AI wherever it narrates the player (e.g. "she/her").
+    sheet.pronouns = String(raw.pronouns ?? '').trim().slice(0, 40);
     return sheet;
 }
 
@@ -100,6 +102,7 @@ export function buildPlayerStatBlock(parts = {}) {
         strike: sheet.strike
     });
     // (normalizeStatBlock adds STR/DEX/CON at 10 when missing: 0 points.)
+    if (sheet.pronouns) block.pronouns = String(sheet.pronouns).trim().slice(0, 40);
     return block;
 }
 
@@ -165,6 +168,11 @@ export function trackerFraction(statId) {
     if (!stat || !Number.isFinite(value)) return null;
     const max = Number(stat.maxValue) > 0 ? Number(stat.maxValue) : 100;
     return Math.max(0, Math.min(1, value / max));
+}
+
+/** The player's pronouns from the sheet ('' when not set). */
+export function playerPronouns() {
+    return String(extensionSettings.combatSheet?.pronouns ?? '').trim().slice(0, 40);
 }
 
 /** The player's stat block as it enters a fight: items take their quantity from the inventory. */
@@ -432,6 +440,7 @@ function classSnapshot(parts, name) {
     snap.level = 1;
     snap.bonusPoints = 0;
     snap.glimmerPoints = 0;
+    snap.pronouns = '';
     snap.kind = 'class';
     return snap;
 }
@@ -462,7 +471,7 @@ export function deleteClassTemplate(id) {
 export function importClassTemplate(raw) {
     const snap = normalizeSnapshot(raw);
     if (!snap) return null;
-    const entry = { ...snap, level: 1, bonusPoints: 0, glimmerPoints: 0, kind: 'class', id: newId(), savedAt: Date.now() };
+    const entry = { ...snap, level: 1, bonusPoints: 0, glimmerPoints: 0, pronouns: '', kind: 'class', id: newId(), savedAt: Date.now() };
     getClassTemplates().push(entry);
     saveSettings();
     return entry;
@@ -512,7 +521,8 @@ export function partsWithClass(work, template) {
         ...parts.sheet,
         bonusPoints: work.sheet?.bonusPoints || 0,
         glimmerPoints: work.sheet?.glimmerPoints || 0,
-        glimmerPreferences: work.sheet?.glimmerPreferences || ''
+        glimmerPreferences: work.sheet?.glimmerPreferences || '',
+        pronouns: work.sheet?.pronouns || ''
     });
     const out = {
         ...work,

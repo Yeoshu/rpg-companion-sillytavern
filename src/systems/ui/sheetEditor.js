@@ -91,6 +91,10 @@ export async function openSheetEditor() {
                 <h3><i class="fa-solid fa-id-card"></i> ${esc(playerName())}</h3>
                 <span class="rpg-sheet-level">${esc(t('sheet.level', 'Level'))} ${work.level}</span>
             </div>
+            <label class="rpg-sheet-pronouns" title="${esc(t('sheet.pronounsHint', 'Told to the AI in combat, Attempt and Task prompts, so it narrates your character correctly'))}">
+                <span>${esc(t('sheet.pronouns', 'Pronouns'))}</span>
+                <input type="text" class="text_pole" data-field="pronouns" value="${esc(work.sheet.pronouns || '')}" maxlength="40" placeholder="${esc(t('sheet.pronounsPlaceholder', 'e.g. she/her, he/him, they/them'))}">
+            </label>
             <div class="rpg-sheet-points" data-out="points"></div>
 
             <section class="rpg-sheet-section">
@@ -369,6 +373,9 @@ export async function openSheetEditor() {
     });
     $root.on('input change', '[data-glimmer-prefs]', function () {
         work.sheet.glimmerPreferences = String($(this).val() || '');
+    });
+    $root.on('input change', '[data-field="pronouns"]', function () {
+        work.sheet.pronouns = String($(this).val() || '').slice(0, 40);
     });
     $root.on('input change', '[data-strike]', function () {
         work.sheet.strike = { ...(work.sheet.strike || {}), [$(this).data('strike')]: $(this).val() };
