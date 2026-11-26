@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    DEFAULT_PROGRESSION, normalizeProgression, expToNextLevel, questReward,
+    DEFAULT_PROGRESSION, normalizeProgression, expToNextLevel, questReward, questStepMultiplier,
     enemyLevelMultiplier, enemyReward, addExp, earlyMultiplier,
 } from '../src/systems/mechanics/progression.js';
 
@@ -29,6 +29,17 @@ test('quest rewards are a percentage of the current bar', () => {
     assert.equal(questReward('main', 4, S, () => 0.5), 100); // 25% of 400
     assert.equal(questReward('side', 1, S, () => 0), 5);
     assert.equal(questReward('side', 2, S, () => 1), 20);  // 10% of 200
+});
+
+test('quest rewards scale with the number of steps', () => {
+    assert.equal(questStepMultiplier('main', 8, S), 2);
+    assert.equal(questStepMultiplier('main', 2, S), 0.5);
+    assert.equal(questStepMultiplier('side', 3, S), 1.5);
+    assert.equal(questStepMultiplier('main', 0, S), 1);                 // no steps: typical
+    assert.equal(questStepMultiplier('main', 8, { ...S, mainQuestSteps: 0 }), 1); // scaling off
+    assert.equal(questReward('main', 1, S, () => 0, 8), 40);           // 20% × 2
+    assert.equal(questReward('side', 1, S, () => 0, 1), 3);            // 5% × 0.5 = 2.5 → 3
+    assert.equal(questReward('main', 1, S, () => 0), 20);              // steps unknown
 });
 
 test('enemy reward scales with the level difference', () => {
@@ -58,4 +69,14 @@ test('settings are normalized', () => {
     assert.equal(n.enemyLevelFactor, DEFAULT_PROGRESSION.enemyLevelFactor);
     assert.equal(n.expBase, DEFAULT_PROGRESSION.expBase);
     assert.equal(addExp({ level: 1, exp: 0, points: 0 }, 100, normalizeProgression({ pointsPerLevel: 5 })).points, 5);
+});
+
+test('one quest never gives more than the cap (75% of the bar by default)', () => {
+    assert.equal(questReward('main', 1, S, () => 0, 20), 75);           // 20% × 5 = 100% → 75%
+    assert.equal(questReward('main', 1, FAST, () => 0, 8), 75);         // 40% × 2 (fast start) = 80% → 75%
+    assert.equal(questReward('main', 1, S, () => 0, 8), 40);            // under the cap: untouched
+    assert.equal(questReward('main', 1, { ...S, questCapEnabled: false }, () => 0, 20), 100);
+    assert.equal(questReward('main', 1, { ...S, questCap: 50 }, () => 0, 20), 50);
+    assert.equal(normalizeProgression({}).questCapEnabled, true);
+    assert.equal(normalizeProgression({ questCapEnabled: false }).questCapEnabled, false);
 });

@@ -267,7 +267,7 @@ function attachQuestEventHandlers() {
         const { field, index } = cardOf(this);
         const quest = getQuest(field, index);
         if (!quest) return;
-        if ($(this).data('action') === 'complete-quest') completeQuest(field === 'main' ? 'main' : 'side', quest.name);
+        if ($(this).data('action') === 'complete-quest') completeQuest(field === 'main' ? 'main' : 'side', quest.name, quest.steps?.length);
         else markQuestResolved(quest.name, 'abandoned');
         setQuest(field, index, null);
         renderQuests();

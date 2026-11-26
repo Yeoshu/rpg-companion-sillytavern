@@ -481,6 +481,12 @@ async function initUI() {
         saveSettings();
         $(document).trigger('rpg:progressionChanged');
     });
+    $('#rpg-toggle-quest-cap').on('change', function() {
+        extensionSettings.progression = { ...getProgression(), questCapEnabled: $(this).prop('checked') };
+        fillProgressionInputs();
+        saveSettings();
+        $(document).trigger('rpg:progressionChanged');
+    });
     $('#rpg-quest-memory').on('change', function() {
         const value = Math.round(Number($(this).val()));
         extensionSettings.questMemory = Number.isFinite(value) && value >= 0 ? Math.min(500, value) : 20;
@@ -529,6 +535,12 @@ async function initUI() {
 
     $('#rpg-toggle-attempt-button').on('change', function() {
         extensionSettings.showAttemptButton = $(this).prop('checked');
+        saveSettings();
+        togglePlotButtons();
+    });
+
+    $('#rpg-toggle-task-button').on('change', function() {
+        extensionSettings.showTaskButton = $(this).prop('checked');
         saveSettings();
         togglePlotButtons();
     });
@@ -1206,6 +1218,7 @@ async function initUI() {
     $('#rpg-quest-memory').val(extensionSettings.questMemory ?? 20);
     $('#rpg-toggle-attempt-button').prop('checked', extensionSettings.showAttemptButton ?? true);
     $('#rpg-toggle-attempt-suggest').prop('checked', extensionSettings.attemptSuggest ?? true);
+    $('#rpg-toggle-task-button').prop('checked', extensionSettings.showTaskButton ?? true);
     $('#rpg-toggle-encounters').prop('checked', extensionSettings.encounterSettings?.enabled ?? true);
     $('#rpg-encounter-history-depth').val(extensionSettings.encounterSettings?.historyDepth ?? 8);
     $('#rpg-encounter-narration').val(extensionSettings.encounterSettings?.narration === 'end' ? 'end' : 'phase');
@@ -1377,6 +1390,8 @@ function fillProgressionInputs() {
     $('[data-progression]').each(function() {
         $(this).val(values[$(this).data('progression')]);
     });
+    $('#rpg-toggle-quest-cap').prop('checked', values.questCapEnabled !== false);
+    $('[data-progression="questCap"]').prop('disabled', values.questCapEnabled === false);
 }
 
 /**

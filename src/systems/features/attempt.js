@@ -128,15 +128,15 @@ export async function startAttempt() {
    Asking the model
    --------------------------------------------------------------------------- */
 
-function describeAttributes(attributes) {
+export function describeAttributes(attributes) {
     return attributes.map(attr => `${attr.name} ${attr.value}`).join(', ') || 'none';
 }
 
-function describeSkills(skills) {
+export function describeSkills(skills) {
     return skills.map(skill => `${skill.name} ${formatModifier(skill.level)}`).join(', ') || 'none';
 }
 
-function buildContext() {
+export function buildContext() {
     const lines = [];
     for (let i = chat.length - 1; i >= 0 && lines.length < CONTEXT_MESSAGES; i--) {
         const msg = chat[i];
@@ -208,7 +208,7 @@ export function parseSuggestion(text) {
  * Resolves a dialog choice into the pieces the rules need.
  * Skill values: '' (none), 'skill:<key>' (trained), 'untrained:<name>'.
  */
-function interpretChoice({ attributeId, skillValue, difficulty }) {
+export function interpretChoice({ attributeId, skillValue, difficulty }) {
     const attribute = findAttribute(attributeId) || getAttributes()[0];
     let skill = null;
     if (skillValue?.startsWith('skill:')) {
@@ -226,7 +226,11 @@ function interpretChoice({ attributeId, skillValue, difficulty }) {
     return { attribute, skill, difficulty: normalizeDifficulty(difficulty), target };
 }
 
-function buildDialog(suggestion) {
+/**
+ * The attribute / skill / difficulty selects, for a dialog.
+ * @returns {string} HTML for a .rpg-roll-fields block
+ */
+export function checkFieldsHtml(suggestion, extraFields = '') {
     const attributes = getAttributes();
     const skills = getSkills();
     const suggested = suggestion.skillName ? findSkill(suggestion.skillName) : null;
@@ -242,36 +246,47 @@ function buildDialog(suggestion) {
 
     const difficultyOptions = Object.entries(DIFFICULTIES).map(([id, d]) => `<option value="${id}" ${id === suggestion.difficulty ? 'selected' : ''}>${escapeHtml(t(`attempt.difficulty.${id}`, d.label))} (${formatModifier(d.modifier)})</option>`).join('');
 
-    const $dialog = $(`
-        <div class="rpg-roll-prompt">
-            <h3><i class="fa-solid fa-dice-d20"></i> ${escapeHtml(t('attempt.dialogTitle', 'Attempt'))}</h3>
-            ${suggestion.reason ? `<p class="rpg-roll-reason">${escapeHtml(suggestion.reason)}</p>` : ''}
+    return `
             <div class="rpg-roll-fields">
                 <label><span>${escapeHtml(t('attempt.attribute', 'Attribute'))}</span><select class="text_pole" data-roll="attribute">${attributeOptions}</select></label>
                 ${skills.length ? `<label><span>${escapeHtml(t('attempt.skill', 'Skill'))}</span><select class="text_pole" data-roll="skill">${skillOptions}</select></label>` : ''}
                 <label><span>${escapeHtml(t('attempt.difficulty', 'Difficulty'))}</span><select class="text_pole" data-roll="difficulty">${difficultyOptions}</select></label>
-            </div>
+                ${extraFields}
+            </div>`;
+}
+
+/** Reads the check selects of a dialog built with checkFieldsHtml. */
+export function readCheckChoice($dialog) {
+    return {
+        attributeId: $dialog.find('[data-roll="attribute"]').val(),
+        skillValue: $dialog.find('[data-roll="skill"]').val() || '',
+        difficulty: $dialog.find('[data-roll="difficulty"]').val()
+    };
+}
+
+/** "Roll 3d6 under or equal to 12 (74%)" plus how the target was made up, as HTML. */
+export function targetSummaryHtml(choice, { label = t('attempt.rollUnder', 'Roll 3d6 under or equal to'), showChance = true } = {}) {
+    const { attribute, skill, difficulty, target } = interpretChoice(choice);
+    const chance = Math.round(successChance(target.target) * 100);
+    const parts = [`${escapeHtml(attribute.name)} ${formatTarget(target.base)}`];
+    if (skill) parts.push(`${escapeHtml(skill.name)} ${formatModifier(target.skill)}`);
+    if (target.difficulty) parts.push(`${escapeHtml(DIFFICULTIES[difficulty].label)} ${formatModifier(target.difficulty)}`);
+    return `<div>${escapeHtml(label)} <strong>${target.target}</strong>${showChance ? ` <span class="rpg-roll-chance">(${chance}%)</span>` : ''}</div>`
+        + `<small>${parts.join(' · ')}</small>`;
+}
+
+function buildDialog(suggestion) {
+    const $dialog = $(`
+        <div class="rpg-roll-prompt">
+            <h3><i class="fa-solid fa-dice-d20"></i> ${escapeHtml(t('attempt.dialogTitle', 'Attempt'))}</h3>
+            ${suggestion.reason ? `<p class="rpg-roll-reason">${escapeHtml(suggestion.reason)}</p>` : ''}
+            ${checkFieldsHtml(suggestion)}
             <div class="rpg-roll-target"></div>
         </div>
     `);
 
-    const readChoice = () => ({
-        attributeId: $dialog.find('[data-roll="attribute"]').val(),
-        skillValue: $dialog.find('[data-roll="skill"]').val() || '',
-        difficulty: $dialog.find('[data-roll="difficulty"]').val()
-    });
-
-    const refresh = () => {
-        const { attribute, skill, difficulty, target } = interpretChoice(readChoice());
-        const chance = Math.round(successChance(target.target) * 100);
-        const parts = [`${escapeHtml(attribute.name)} ${formatTarget(target.base)}`];
-        if (skill) parts.push(`${escapeHtml(skill.name)} ${formatModifier(target.skill)}`);
-        if (target.difficulty) parts.push(`${escapeHtml(DIFFICULTIES[difficulty].label)} ${formatModifier(target.difficulty)}`);
-        $dialog.find('.rpg-roll-target').html(
-            `<div>${escapeHtml(t('attempt.rollUnder', 'Roll 3d6 under or equal to'))} <strong>${target.target}</strong> <span class="rpg-roll-chance">(${chance}%)</span></div>`
-            + `<small>${parts.join(' · ')}</small>`
-        );
-    };
+    const readChoice = () => readCheckChoice($dialog);
+    const refresh = () => $dialog.find('.rpg-roll-target').html(targetSummaryHtml(readChoice()));
     $dialog.on('change', 'select', refresh);
     refresh();
 

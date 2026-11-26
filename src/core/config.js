@@ -120,6 +120,10 @@ export const defaultSettings = {
         mainQuestMax: 30,
         sideQuestMin: 5,
         sideQuestMax: 10,
+        mainQuestSteps: 4,
+        sideQuestSteps: 2,
+        questCapEnabled: true,
+        questCap: 75,
         enemyBase: 5,
         enemyLevelFactor: 1.3,
         earlyBoost: 2,
@@ -131,6 +135,8 @@ export const defaultSettings = {
     showAttemptButton: true, // Show the Attempt (roll for it) button above the chat input
     attemptSuggest: true, // Ask the AI which attribute/skill/difficulty fits when Attempt is clicked
     customAttemptPrompt: '', // Custom attempt check prompt (empty = use default)
+    showTaskButton: true, // Show the Task (long or repetitive task) button above the chat input
+    customTaskPrompt: '', // Custom task check prompt (empty = use default)
     customQuestPrompt: '', // Custom quest guidelines for tracker updates (empty = use default)
     questMemory: 20, // Chat messages a finished/abandoned quest is listed in the tracker prompt
     questHistory: [], // Per chat: [{name, outcome, at}] quests finished or abandoned

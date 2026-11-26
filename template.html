@@ -523,6 +523,15 @@
                 </small>
 
                 <label class="checkbox_label">
+                    <input type="checkbox" id="rpg-toggle-task-button" />
+                    <span data-i18n-key="template.settingsModal.display.showTask">Show Task</span>
+                </label>
+                <small class="rpg-note rpg-note-indented"
+                    data-i18n-key="template.settingsModal.display.showTaskNote">
+                    Display a button for long or repetitive tasks (training, crafting, searching, travel). It rolls once per stretch of the task, and the AI skips ahead through the time and sums up how it went. Uses the same "Suggest the check with AI" setting as Attempt.
+                </small>
+
+                <label class="checkbox_label">
                     <input type="checkbox" id="rpg-toggle-encounters" />
                     <span data-i18n-key="template.settingsModal.display.showStartEncounter">Show Start Encounter</span>
                 </label>
@@ -651,7 +660,7 @@
                 <h4 data-i18n-key="template.settingsModal.progressionTitle"><i class="fa-solid fa-arrow-up-right-dots"
                         aria-hidden="true"></i> Progression</h4>
                 <small class="rpg-note" data-i18n-key="template.settingsModal.progression.note">
-                    Rewards are a percentage of the current EXP bar, so levelling keeps the same pace at every level. Quest rewards are rolled between the min and max. An enemy gives the base % × the factor for each level it is above you (or ÷ for each level below). The fast start multiplies every reward at level 1 and fades out evenly (×2 over 4 levels: ×2, ×1.75, ×1.5, ×1.25, then ×1), so the first levels come quickly.
+                    Rewards are a percentage of the current EXP bar, so levelling keeps the same pace at every level. Quest rewards are rolled between the min and max, then scaled by the quest's steps: a quest with the typical number of steps gets the range, one with twice as many twice as much (quests without steps count as typical; 0 turns scaling off). With the cap on, no single quest gives more than that % of the bar, fast start included. An enemy gives the base % × the factor for each level it is above you (or ÷ for each level below). The fast start multiplies every reward at level 1 and fades out evenly (×2 over 4 levels: ×2, ×1.75, ×1.5, ×1.25, then ×1), so the first levels come quickly.
                 </small>
                 <div class="rpg-progression-grid">
                     <label class="rpg-progression-field">
@@ -673,6 +682,18 @@
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.progression.progSideMax">Side quest, max %</span>
                         <input type="number" class="rpg-input" data-progression="sideQuestMax" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progMainSteps">Main quest, typical steps</span>
+                        <input type="number" class="rpg-input" data-progression="mainQuestSteps" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span data-i18n-key="template.settingsModal.progression.progSideSteps">Side quest, typical steps</span>
+                        <input type="number" class="rpg-input" data-progression="sideQuestSteps" min="0" step="1" />
+                    </label>
+                    <label class="rpg-progression-field">
+                        <span><input type="checkbox" id="rpg-toggle-quest-cap" /> <span data-i18n-key="template.settingsModal.progression.progQuestCap">Cap one quest at, % of bar</span></span>
+                        <input type="number" class="rpg-input" data-progression="questCap" min="1" step="5" />
                     </label>
                     <label class="rpg-progression-field">
                         <span data-i18n-key="template.settingsModal.progression.progEnemyBase">Enemy of your level, %</span>
@@ -1342,6 +1363,20 @@
                 </small>
                 <textarea id="rpg-prompt-attempt" class="rpg-prompt-textarea" rows="8"></textarea>
                 <button class="menu_button rpg-restore-prompt-btn" data-prompt="attempt" style="margin-top: 8px;">
+                    <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.promptsEditor.restoreDefault">Restore Default</span>
+                </button>
+            </div>
+
+            <!-- Task Check Prompt -->
+            <div class="rpg-prompt-editor-section">
+                <label for="rpg-prompt-task" class="rpg-field-label">
+                    <i class="fa-solid fa-hourglass-half"></i> <span data-i18n-key="template.promptsEditor.taskPrompt.title">Task Check Prompt</span>
+                </label>
+                <small class="rpg-note" data-i18n-key="template.promptsEditor.taskPrompt.note">
+                    Sent when you click Task (if "Suggest the check with AI" is on), to pick the check, how long the task takes and how many stretches to roll. Placeholders: {{user}}, {{char}}, {{attributes}}, {{skills}}, {{context}}, {{action}}. It must ask for the JSON answer shown in the default.
+                </small>
+                <textarea id="rpg-prompt-task" class="rpg-prompt-textarea" rows="8"></textarea>
+                <button class="menu_button rpg-restore-prompt-btn" data-prompt="task" style="margin-top: 8px;">
                     <i class="fa-solid fa-rotate-left"></i>&nbsp;<span data-i18n-key="template.promptsEditor.restoreDefault">Restore Default</span>
                 </button>
             </div>
