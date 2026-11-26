@@ -23,9 +23,10 @@ import {
 } from '../mechanics/combat/costs.js';
 import { describeAbility, describeTarget } from '../mechanics/combat/describe.js';
 import {
-    applyParts, buildPlayerStatBlock, carriedEntries, currentParts, deleteFromLibrary, downloadSnapshot,
-    getCombatSettings, getLibrary, importToLibrary, itemStock, partsFromSnapshot, playerName, saveToLibrary,
-    sheetPoints, snapshotFrom
+    applyParts, buildPlayerStatBlock, carriedEntries, classTemplateCost, currentParts, currentPersona,
+    allClassTemplates, deleteClassTemplate, deleteFromLibrary, downloadSnapshot, getClassTemplates, getCombatSettings, getLibrary,
+    importClassTemplate, importToLibrary, itemStock, linkToPersona, partsFromSnapshot, partsWithClass, playerName,
+    saveClassTemplate, saveToLibrary, sheetPoints, snapshotFrom, syncLinkedCharacter, unlinkPersona
 } from '../features/sheet.js';
 import { openStatBlockManager } from './statBlockManager.js';
 
@@ -90,6 +91,10 @@ export async function openSheetEditor() {
                 <h3><i class="fa-solid fa-id-card"></i> ${esc(playerName())}</h3>
                 <span class="rpg-sheet-level">${esc(t('sheet.level', 'Level'))} ${work.level}</span>
             </div>
+            <label class="rpg-sheet-pronouns" title="${esc(t('sheet.pronounsHint', 'Told to the AI in combat, Attempt and Task prompts, so it narrates your character correctly'))}">
+                <span>${esc(t('sheet.pronouns', 'Pronouns'))}</span>
+                <input type="text" class="text_pole" data-field="pronouns" value="${esc(work.sheet.pronouns || '')}" maxlength="40" placeholder="${esc(t('sheet.pronounsPlaceholder', 'e.g. she/her, he/him, they/them'))}">
+            </label>
             <div class="rpg-sheet-points" data-out="points"></div>
 
             <section class="rpg-sheet-section">
@@ -185,6 +190,17 @@ export async function openSheetEditor() {
             </section>
 
             <section class="rpg-sheet-section">
+                <h4>${esc(t('sheet.classes', 'Class templates'))} <small>${esc(t('sheet.classesHint', 'level-1 builds to start a character from'))}</small></h4>
+                <div class="rpg-sheet-library-save">
+                    <input type="text" class="text_pole" data-field="class-name" value="" placeholder="${esc(t('sheet.className', 'Class name, e.g. Ranger'))}">
+                    <button type="button" class="menu_button" data-action="class-save"><i class="fa-solid fa-floppy-disk"></i> ${esc(t('sheet.saveClass', 'Save as class'))}</button>
+                    <button type="button" class="menu_button" data-action="class-import"><i class="fa-solid fa-file-import"></i> ${esc(t('sheet.import', 'Import'))}</button>
+                    <input type="file" accept=".json,application/json" data-field="class-file" hidden>
+                </div>
+                <div class="rpg-sheet-classes">${classRows()}</div>
+            </section>
+
+            <section class="rpg-sheet-section">
                 <h4>${esc(t('sheet.library', 'Saved characters'))} <small>${esc(t('sheet.libraryHint', 'reuse this character in other chats'))}</small></h4>
                 <div class="rpg-sheet-library-save">
                     <input type="text" class="text_pole" data-field="library-name" value="${esc(playerName())}" placeholder="${esc(t('sheet.name', 'Name'))}">
@@ -199,17 +215,47 @@ export async function openSheetEditor() {
         refresh();
     };
 
+    function classRows() {
+        return allClassTemplates().map(e => {
+            // Cost in this chat: only attributes and skills it tracks count (see partsWithClass).
+            const applied = partsWithClass(work, e);
+            const cost = applied ? classTemplateCost(applied.parts) : { spent: 0, budget: 0 };
+            const spent = applied?.trimmed ? applied.trimmed.from : cost.spent;
+            const chips = [];
+            if (e.builtin) chips.push(`<span class="rpg-sheet-chip">${esc(t('sheet.builtin', 'built-in'))}</span>`);
+            if (applied?.trimmed) chips.push(`<span class="rpg-sheet-chip rpg-sheet-chip-warn" title="${esc(t('sheet.classOverHint', 'Costs more than a level-1 character has with the current power level; trimmed to fit when applied'))}">${esc(t('sheet.classTrimmed', 'trimmed to {budget} CP').replace('{budget}', cost.budget))}</span>`);
+            return `
+            <div class="rpg-sheet-library-row" data-id="${esc(e.id)}" title="${esc(e.description || '')}">
+                <span class="rpg-sheet-label">${esc(e.name)} <small>· ${spent} CP · ${(e.abilities || []).length} ${esc(t('sheet.abilitiesShort', 'abilities'))}</small> ${chips.join(' ')}${e.description ? `<br><small>${esc(e.description)}</small>` : ''}</span>
+                <button type="button" class="menu_button" data-action="class-apply" title="${esc(t('sheet.classApply', 'Use this build (replaces attributes, skills, abilities and items; on Save)'))}"><i class="fa-solid fa-wand-magic-sparkles"></i></button>
+                ${e.builtin ? '' : `<button type="button" class="menu_button" data-action="class-overwrite" title="${esc(t('sheet.overwrite', 'Overwrite with this character'))}"><i class="fa-solid fa-floppy-disk"></i></button>`}
+                <button type="button" class="menu_button" data-action="class-export" title="${esc(t('sheet.export', 'Export as a file'))}"><i class="fa-solid fa-file-export"></i></button>
+                ${e.builtin ? '' : `<button type="button" class="menu_button" data-action="class-delete" title="${esc(t('sheet.delete', 'Delete'))}"><i class="fa-solid fa-trash"></i></button>`}
+            </div>`;
+        }).join('');
+    }
+
     function libraryRows() {
         const library = getLibrary();
         if (!library.length) return `<div class="rpg-sheet-empty">${esc(t('sheet.libraryEmpty', 'Nothing saved yet.'))}</div>`;
-        return library.map(e => `
+        const persona = currentPersona();
+        return library.map(e => {
+            const mine = persona.key && e.persona === persona.key;
+            const link = e.persona
+                ? `<span class="rpg-sheet-chip ${mine ? 'rpg-sheet-chip-ok' : ''}" title="${esc(t('sheet.linkedHint', 'Loaded into new chats with this persona, and updated when you save the sheet there'))}"><i class="fa-solid fa-link"></i> ${esc(e.personaName || e.persona)}</span>`
+                : '';
+            return `
             <div class="rpg-sheet-library-row" data-id="${esc(e.id)}">
-                <span class="rpg-sheet-label">${esc(e.name)} <small>· ${esc(t('sheet.level', 'Level'))} ${e.level} · ${(e.abilities || []).length} ${esc(t('sheet.abilitiesShort', 'abilities'))}</small></span>
+                <span class="rpg-sheet-label">${esc(e.name)} <small>· ${esc(t('sheet.level', 'Level'))} ${e.level} · ${(e.abilities || []).length} ${esc(t('sheet.abilitiesShort', 'abilities'))}</small> ${link}</span>
+                <button type="button" class="menu_button ${mine ? 'rpg-sheet-linked' : ''}" data-action="library-link" title="${esc(mine
+                    ? t('sheet.unlink', 'Unlink from your persona')
+                    : t('sheet.link', 'Link to your current persona ({name}): load it into new chats with that persona and keep it updated').replace('{name}', persona.name))}"><i class="fa-solid ${mine ? 'fa-link-slash' : 'fa-link'}"></i></button>
                 <button type="button" class="menu_button" data-action="library-load" title="${esc(t('sheet.load', 'Load into this chat (on Save)'))}"><i class="fa-solid fa-download"></i></button>
                 <button type="button" class="menu_button" data-action="library-overwrite" title="${esc(t('sheet.overwrite', 'Overwrite with this character'))}"><i class="fa-solid fa-floppy-disk"></i></button>
                 <button type="button" class="menu_button" data-action="library-export" title="${esc(t('sheet.export', 'Export as a file'))}"><i class="fa-solid fa-file-export"></i></button>
                 <button type="button" class="menu_button" data-action="library-delete" title="${esc(t('sheet.delete', 'Delete'))}"><i class="fa-solid fa-trash"></i></button>
-            </div>`).join('');
+            </div>`;
+        }).join('');
     }
 
     function abilityCard(a, i, kind) {
@@ -328,6 +374,9 @@ export async function openSheetEditor() {
     $root.on('input change', '[data-glimmer-prefs]', function () {
         work.sheet.glimmerPreferences = String($(this).val() || '');
     });
+    $root.on('input change', '[data-field="pronouns"]', function () {
+        work.sheet.pronouns = String($(this).val() || '').slice(0, 40);
+    });
     $root.on('input change', '[data-strike]', function () {
         work.sheet.strike = { ...(work.sheet.strike || {}), [$(this).data('strike')]: $(this).val() };
     });
@@ -388,7 +437,7 @@ export async function openSheetEditor() {
         toastr.success(esc(name), t('sheet.savedToLibrary', 'Saved to your characters'));
         $root.find('.rpg-sheet-library').html(libraryRows());
     });
-    $root.on('click', '.rpg-sheet-library-row [data-action]', async function () {
+    $root.on('click', '.rpg-sheet-library .rpg-sheet-library-row [data-action]', async function () {
         const id = $(this).closest('.rpg-sheet-library-row').data('id');
         const entry = getLibrary().find(e => e.id === id);
         if (!entry) return;
@@ -403,6 +452,15 @@ export async function openSheetEditor() {
             saveToLibrary(entry.name, work, entry.id);
             toastr.success(esc(entry.name), t('sheet.overwritten', 'Saved over'));
             $root.find('.rpg-sheet-library').html(libraryRows());
+        } else if (action === 'library-link') {
+            if (entry.persona && entry.persona === currentPersona().key) {
+                unlinkPersona(id);
+            } else if (linkToPersona(id)) {
+                toastr.success(t('sheet.linkedToast', 'New chats with {name} start with this character, and saving the sheet keeps it updated.').replace('{name}', esc(currentPersona().name)), esc(entry.name));
+            } else {
+                toastr.warning(t('sheet.noPersona', 'No persona is selected.'));
+            }
+            $root.find('.rpg-sheet-library').html(libraryRows());
         } else if (action === 'library-export') {
             downloadSnapshot(entry);
         } else if (action === 'library-delete') {
@@ -410,6 +468,62 @@ export async function openSheetEditor() {
             $root.find('.rpg-sheet-library').html(libraryRows());
         }
     });
+    // --- Class templates ---------------------------------------------------
+    const saveClass = (name, replaceId = null) => {
+        const result = saveClassTemplate(name, work, replaceId);
+        if (result.error === 'overBudget') {
+            toastr.warning(t('sheet.classTooBig', 'This build costs {spent} CP; a level-1 character has {budget}. Trim it to save it as a class.').replace('{spent}', result.spent).replace('{budget}', result.budget));
+            return;
+        }
+        toastr.success(esc(name), t('sheet.classSaved', 'Saved as a class template'));
+        $root.find('.rpg-sheet-classes').html(classRows());
+    };
+    $root.on('click', '[data-action="class-save"]', function () {
+        const name = String($root.find('[data-field="class-name"]').val() || '').trim();
+        if (!name) {
+            toastr.info(t('sheet.classNameFirst', 'Name the class first.'));
+            $root.find('[data-field="class-name"]').trigger('focus');
+            return;
+        }
+        saveClass(name);
+    });
+    $root.on('click', '.rpg-sheet-classes .rpg-sheet-library-row [data-action]', function () {
+        const id = $(this).closest('.rpg-sheet-library-row').data('id');
+        const entry = allClassTemplates().find(e => e.id === id);
+        if (!entry) return;
+        const action = $(this).data('action');
+        if (entry.builtin && (action === 'class-overwrite' || action === 'class-delete')) return;
+        if (action === 'class-apply') {
+            const result = partsWithClass(work, entry);
+            if (!result) return;
+            work = result.parts;
+            const trimmed = result.trimmed ? ` ${t('sheet.classTrimmedToast', 'Trimmed from {from} to {to} CP to fit your power level.').replace('{from}', result.trimmed.from).replace('{to}', result.trimmed.to)}` : '';
+            toastr.info(t('sheet.classApplied', 'Build applied. Click Save to keep it in this chat.') + trimmed, esc(entry.name));
+            rebuildPreservingScroll();
+        } else if (action === 'class-overwrite') {
+            saveClass(entry.name, entry.id);
+        } else if (action === 'class-export') {
+            downloadSnapshot(entry);
+        } else if (action === 'class-delete') {
+            deleteClassTemplate(id);
+            $root.find('.rpg-sheet-classes').html(classRows());
+        }
+    });
+    $root.on('click', '[data-action="class-import"]', () => $root.find('[data-field="class-file"]').trigger('click'));
+    $root.on('change', '[data-field="class-file"]', async function () {
+        const file = this.files?.[0];
+        this.value = '';
+        if (!file) return;
+        try {
+            const entry = importClassTemplate(JSON.parse(await file.text()));
+            if (!entry) throw new Error('not a character sheet');
+            toastr.success(esc(entry.name), t('sheet.imported', 'Imported'));
+            $root.find('.rpg-sheet-classes').html(classRows());
+        } catch (error) {
+            toastr.error(esc(error.message), t('sheet.importFailed', 'Could not import that file'));
+        }
+    });
+
     $root.on('click', '[data-action="npc-manager"]', () => openStatBlockManager());
     $root.on('click', '[data-action="library-import"]', () => $root.find('[data-field="library-file"]').trigger('click'));
     $root.on('change', '[data-field="library-file"]', async function () {
@@ -436,6 +550,9 @@ export async function openSheetEditor() {
     });
     if (result !== POPUP_RESULT.AFFIRMATIVE) return false;
     applyParts(work);
+    // A character linked to this persona follows the sheet.
+    const synced = syncLinkedCharacter(work);
+    if (synced) toastr.info(t('sheet.linkedUpdated', 'Also updated the saved character linked to your persona.'), esc(synced.name), { timeOut: 3000 });
     return true;
 }
 

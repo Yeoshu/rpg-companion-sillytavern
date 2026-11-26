@@ -139,6 +139,9 @@ export function summarizeRoll(roll) {
 /** The text the AI sees for a roll. */
 export function describeRollForPrompt(roll, userName = getContext().name1) {
     if (!roll) return '';
+    // "Lem (she/her)" when the sheet says, so the reply gets the pronouns right.
+    const pronouns = String(extensionSettings.combatSheet?.pronouns ?? '').trim();
+    if (pronouns) userName = `${userName} (${pronouns})`;
 
     if (roll.kind === 'task') return describeTaskForPrompt(roll, userName);
 

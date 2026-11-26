@@ -4839,3 +4839,23 @@ body.rpg-fab-panel-open .rpg-fab-widget-container {
     margin-top: 6px;
     opacity: 0.85;
 }
+
+.rpg-sheet-library-row .rpg-sheet-chip {
+    margin-left: 0.3em;
+    font-size: 0.8em;
+}
+
+.rpg-sheet-library-row .menu_button.rpg-sheet-linked {
+    color: var(--rpg-success, #6c6);
+}
+
+.rpg-sheet-pronouns {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    margin: 0.2em 0 0.4em;
+}
+
+.rpg-sheet-pronouns input {
+    max-width: 16em;
+}

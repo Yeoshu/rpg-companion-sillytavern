@@ -5,11 +5,14 @@
  * saved character sheets.
  *
  * Per chat: extensionSettings.combatSheet (saved in chat_metadata).
- * Global:   extensionSettings.sheetLibrary, extensionSettings.combat.
+ * Global:   extensionSettings.sheetLibrary (saved characters, optionally linked
+ *           to a persona), extensionSettings.classTemplates (level-1 builds),
+ *           extensionSettings.combat.
  * See docs/COMBAT_DESIGN.md §1, §7 and §10.
  */
 
 import { getContext } from '../../../../../../extensions.js';
+import { getCurrentChatId, user_avatar } from '../../../../../../../script.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { getAttributes, getSkills } from '../mechanics/character.js';
@@ -17,7 +20,8 @@ import { normalizeProgression } from '../mechanics/progression.js';
 import {
     BUYABLE, DAMAGE_TYPES, RESISTANCES, normalizeAbility, normalizeCombatSettings, normalizeStatBlock, normalizeStrike
 } from '../mechanics/combat/catalog.js';
-import { apCap, abilityCost, abilityPoints, levelBudget, statBlockPoints } from '../mechanics/combat/costs.js';
+import { apCap, abilityCost, abilityPoints, levelBudget, scaleToBudget, statBlockPoints } from '../mechanics/combat/costs.js';
+import { BUILTIN_CLASSES } from '../mechanics/classes.js';
 import { inventoryQuantity } from '../mechanics/combat/inventory.js';
 import { parseItems } from '../../utils/itemParser.js';
 
@@ -28,7 +32,7 @@ export function getCombatSettings() {
 }
 
 export function emptySheet() {
-    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0, strike: normalizeStrike(null), glimmerPoints: 0, glimmerPreferences: '' };
+    return { bought: {}, resistances: {}, abilities: [], items: [], bonusPoints: 0, strike: normalizeStrike(null), glimmerPoints: 0, glimmerPreferences: '', pronouns: '' };
 }
 
 /** Cleans a stored sheet (abilities and items go through the catalog sanitizers). */
@@ -49,6 +53,8 @@ export function normalizeSheet(raw) {
     // Glimmered abilities come with bonus CP equal to their cost when found.
     sheet.glimmerPoints = Math.max(0, Math.round(Number(raw.glimmerPoints) || 0));
     sheet.glimmerPreferences = String(raw.glimmerPreferences ?? '').slice(0, 1000);
+    // Told to the AI wherever it narrates the player (e.g. "she/her").
+    sheet.pronouns = String(raw.pronouns ?? '').trim().slice(0, 40);
     return sheet;
 }
 
@@ -96,6 +102,7 @@ export function buildPlayerStatBlock(parts = {}) {
         strike: sheet.strike
     });
     // (normalizeStatBlock adds STR/DEX/CON at 10 when missing: 0 points.)
+    if (sheet.pronouns) block.pronouns = String(sheet.pronouns).trim().slice(0, 40);
     return block;
 }
 
@@ -161,6 +168,11 @@ export function trackerFraction(statId) {
     if (!stat || !Number.isFinite(value)) return null;
     const max = Number(stat.maxValue) > 0 ? Number(stat.maxValue) : 100;
     return Math.max(0, Math.min(1, value / max));
+}
+
+/** The player's pronouns from the sheet ('' when not set). */
+export function playerPronouns() {
+    return String(extensionSettings.combatSheet?.pronouns ?? '').trim().slice(0, 40);
 }
 
 /** The player's stat block as it enters a fight: items take their quantity from the inventory. */
@@ -281,8 +293,13 @@ export function normalizeSnapshot(raw) {
  */
 export function saveToLibrary(name, parts = currentParts(), replaceId = null) {
     const library = getLibrary();
-    const entry = { id: replaceId || newId(), savedAt: Date.now(), ...snapshotFrom(parts, name) };
     const i = replaceId ? library.findIndex(e => e.id === replaceId) : -1;
+    const entry = { id: replaceId || newId(), savedAt: Date.now(), ...snapshotFrom(parts, name) };
+    // Overwriting keeps the persona link.
+    if (i >= 0 && library[i].persona) {
+        entry.persona = library[i].persona;
+        entry.personaName = library[i].personaName;
+    }
     if (i >= 0) library[i] = entry;
     else library.push(entry);
     saveSettings();
@@ -316,4 +333,215 @@ export function downloadSnapshot(snapshot) {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ---------------------------------------------------------------------------
+   Persona links: a saved character that belongs to a persona is loaded into
+   fresh chats with that persona, and kept up to date when the sheet is saved.
+   --------------------------------------------------------------------------- */
+
+/** The active persona: { key: its avatar file (SillyTavern's persona id), name }. */
+export function currentPersona() {
+    let context = {};
+    try { context = getContext() || {}; } catch { /* no context */ }
+    const key = context.user_avatar || user_avatar || '';
+    return { key: String(key), name: context.name1 || playerName() };
+}
+
+/** The saved character linked to a persona (default: the active one), or null. */
+export function linkedEntry(personaKey = currentPersona().key) {
+    if (!personaKey) return null;
+    return getLibrary().find(e => e.persona === personaKey) || null;
+}
+
+/** Links a saved character to the active persona (a persona has at most one). */
+export function linkToPersona(id) {
+    const { key, name } = currentPersona();
+    if (!key) return null;
+    let linked = null;
+    for (const e of getLibrary()) {
+        if (e.id === id) {
+            e.persona = key;
+            e.personaName = name;
+            linked = e;
+        } else if (e.persona === key) {
+            delete e.persona;
+            delete e.personaName;
+        }
+    }
+    saveSettings();
+    return linked;
+}
+
+export function unlinkPersona(id) {
+    const e = getLibrary().find(x => x.id === id);
+    if (!e) return;
+    delete e.persona;
+    delete e.personaName;
+    saveSettings();
+}
+
+/** A chat whose character hasn't been set up yet: empty sheet, level 1, no EXP. */
+export function isFreshCharacter() {
+    const sheet = extensionSettings.combatSheet;
+    const empty = !sheet || JSON.stringify(normalizeSheet(sheet)) === JSON.stringify(emptySheet());
+    return empty && (Math.floor(extensionSettings.level) || 1) <= 1 && !(Number(extensionSettings.exp) > 0);
+}
+
+/**
+ * Loads the active persona's linked character into this chat, if the chat's
+ * character is still fresh. Called when the chat or the persona changes.
+ * @returns {object|null} the entry loaded
+ */
+let linkedAppliedTo = null; // "chat|persona" last loaded, so it happens once per chat and persona
+
+export function applyLinkedCharacter() {
+    if (!extensionSettings.enabled) return null;
+    let chatId = null;
+    try { chatId = getCurrentChatId(); } catch { /* no chat */ }
+    if (!chatId || !isFreshCharacter()) return null;
+    const entry = linkedEntry();
+    if (!entry) return null;
+    const key = `${chatId}|${entry.persona}`;
+    if (linkedAppliedTo === key) return null;
+    const parts = partsFromSnapshot(entry);
+    if (!parts) return null;
+    linkedAppliedTo = key;
+    applyParts(parts);
+    return entry;
+}
+
+/** After the sheet is saved in a chat: updates the active persona's linked character. */
+export function syncLinkedCharacter(parts = currentParts()) {
+    const entry = linkedEntry();
+    if (!entry) return null;
+    return saveToLibrary(entry.name, parts, entry.id);
+}
+
+/* ---------------------------------------------------------------------------
+   Class templates: level-1 builds (attributes, skills, abilities, items) to
+   start a character from. Global, like the library.
+   --------------------------------------------------------------------------- */
+
+export function getClassTemplates() {
+    if (!Array.isArray(extensionSettings.classTemplates)) extensionSettings.classTemplates = [];
+    return extensionSettings.classTemplates;
+}
+
+/** CP a build costs at level 1 (bonus and glimmer points don't count). */
+export function classTemplateCost(parts) {
+    const p = sheetPoints({ ...parts, sheet: { ...normalizeSheet(parts.sheet), bonusPoints: 0, glimmerPoints: 0 }, level: 1 });
+    return { spent: p.total, budget: p.base };
+}
+
+/** The template form of a build: level 1, no earned bonus points. */
+function classSnapshot(parts, name) {
+    const snap = snapshotFrom({ ...parts, level: 1 }, name);
+    snap.level = 1;
+    snap.bonusPoints = 0;
+    snap.glimmerPoints = 0;
+    snap.pronouns = '';
+    snap.kind = 'class';
+    return snap;
+}
+
+/**
+ * Saves a build as a class template.
+ * @returns {{ entry?: object, error?: string, spent: number, budget: number }}
+ *   error 'overBudget' when the build costs more than a level-1 character has
+ */
+export function saveClassTemplate(name, parts = currentParts(), replaceId = null) {
+    const { spent, budget } = classTemplateCost(parts);
+    if (spent > budget) return { error: 'overBudget', spent, budget };
+    const list = getClassTemplates();
+    const entry = { id: replaceId || newId(), savedAt: Date.now(), ...classSnapshot(parts, name) };
+    const i = replaceId ? list.findIndex(e => e.id === replaceId) : -1;
+    if (i >= 0) list[i] = entry;
+    else list.push(entry);
+    saveSettings();
+    return { entry, spent, budget };
+}
+
+export function deleteClassTemplate(id) {
+    extensionSettings.classTemplates = getClassTemplates().filter(e => e.id !== id);
+    saveSettings();
+}
+
+/** Adds an imported file (a class template or any saved character) as a class template. */
+export function importClassTemplate(raw) {
+    const snap = normalizeSnapshot(raw);
+    if (!snap) return null;
+    const entry = { ...snap, level: 1, bonusPoints: 0, glimmerPoints: 0, pronouns: '', kind: 'class', id: newId(), savedAt: Date.now() };
+    getClassTemplates().push(entry);
+    saveSettings();
+    return entry;
+}
+
+/** Scales a stat block's purchases by `f` (attributes above 10, skills, bought values, ability dice and shields). */
+function shrinkBuild(block, f) {
+    const scale = (v, min = 0) => Math.max(min, Math.floor(v * f));
+    for (const [k, v] of Object.entries(block.attributes)) if (v > 10) block.attributes[k] = 10 + scale(v - 10);
+    for (const [k, v] of Object.entries(block.skills)) block.skills[k] = scale(v);
+    for (const [k, v] of Object.entries(block.bought)) {
+        if (v > 0) block.bought[k] = scale(v);
+        if (!block.bought[k]) delete block.bought[k];
+    }
+    for (const a of block.abilities) {
+        for (const e of a.effects) {
+            if ((e.type === 'damage' || e.type === 'heal') && e.dice) e.dice = scale(e.dice, 1);
+            if (e.type === 'shield') e.amount = scale(e.amount, 1);
+            const st = e.status;
+            if (st && st.dice) st.dice = scale(st.dice, 1);
+            if (st && st.template === 'shield') st.amount = scale(st.amount, 1);
+        }
+    }
+}
+
+/** Built-in classes (marked `builtin`) followed by the user's own. */
+export function allClassTemplates() {
+    return [...BUILTIN_CLASSES.map(c => ({ ...JSON.parse(JSON.stringify(c)), builtin: true })), ...getClassTemplates()];
+}
+
+/**
+ * A working copy with a class template applied: the template's attributes,
+ * skills, abilities, items, bought values, resistances and Strike replace the
+ * current ones (tracked attributes it doesn't list go to 10, skills to 0;
+ * attributes and skills this chat doesn't track are left out). The level,
+ * bonus points and glimmer points stay. A build that costs more than a
+ * level-1 character has with the current power level is trimmed to fit.
+ * @returns {{ parts: object, trimmed: {from: number, to: number}|null }|null}
+ */
+export function partsWithClass(work, template) {
+    const parts = partsFromSnapshot(template);
+    if (!parts) return null;
+    const tracked = (values, keys) => (keys.length ? Object.fromEntries(Object.entries(values).filter(([k]) => keys.includes(k))) : { ...values });
+    const attributeKeys = Object.keys(work.attributes || {});
+    const skillKeys = Object.keys(work.skills || {});
+    const sheet = normalizeSheet({
+        ...parts.sheet,
+        bonusPoints: work.sheet?.bonusPoints || 0,
+        glimmerPoints: work.sheet?.glimmerPoints || 0,
+        glimmerPreferences: work.sheet?.glimmerPreferences || '',
+        pronouns: work.sheet?.pronouns || ''
+    });
+    const out = {
+        ...work,
+        sheet,
+        attributes: { ...Object.fromEntries(attributeKeys.map(k => [k, 10])), ...tracked(parts.attributes, attributeKeys) },
+        skills: { ...Object.fromEntries(skillKeys.map(k => [k, 0])), ...tracked(parts.skills, skillKeys) }
+    };
+    // Too big for this power level's level-1 budget: trim it like an NPC.
+    const { spent, budget } = classTemplateCost(out);
+    if (spent <= budget) return { parts: out, trimmed: null };
+    const progression = normalizeProgression(extensionSettings.progression);
+    const options = { tolerance: 1, skillCost: progression.skillCost, attributeCost: progression.attributeCost };
+    const block = buildPlayerStatBlock({ ...out, sheet: { ...sheet, bonusPoints: 0, glimmerPoints: 0 }, level: 1 });
+    // Shrink everything in proportion first, so the build keeps its shape,
+    // then let the NPC trimmer shave off whatever is still over.
+    shrinkBuild(block, budget / spent);
+    scaleToBudget(block, budget, options);
+    for (const k of Object.keys(out.attributes)) if (block.attributes[k] !== undefined) out.attributes[k] = block.attributes[k];
+    for (const k of Object.keys(out.skills)) if (block.skills[k] !== undefined) out.skills[k] = block.skills[k];
+    out.sheet = normalizeSheet({ ...sheet, bought: block.bought, abilities: block.abilities });
+    return { parts: out, trimmed: { from: spent, to: classTemplateCost(out).spent } };
 }

@@ -32,7 +32,8 @@ function hpWord(c) {
 export function describeCombatants(combatants) {
     return list(combatants.map(c => {
         const side = c.side === 'party' ? 'ally' : 'enemy';
-        const who = c.isPlayer ? 'the user\'s character' : side;
+        const pronouns = c.block?.pronouns ? `, ${c.block.pronouns}` : '';
+        const who = c.isPlayer ? `the user's character${pronouns}` : `${side}${pronouns}`;
         const statuses = c.statuses?.length ? `; ${c.statuses.map(s => s.name).join(', ')}` : '';
         const desc = c.block?.description ? ` ${c.block.description}` : '';
         const swarm = c.swarm && !c.out ? `, a swarm of ${Math.max(1, Math.ceil(c.hp / c.swarm.memberHp))} left of ${c.swarm.count}` : '';

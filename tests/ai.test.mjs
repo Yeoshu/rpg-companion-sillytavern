@@ -5,7 +5,7 @@ import { normalizeStatBlock } from '../src/systems/mechanics/combat/catalog.js';
 import { createCombat, availableActions } from '../src/systems/mechanics/combat/engine.js';
 import { abilityCost } from '../src/systems/mechanics/combat/costs.js';
 import {
-    buildNarrationPrompt, cleanNarration, buildFreeActionPrompt, parseFreeAction, buildTacticsPrompt, parseTactics
+    buildNarrationPrompt, cleanNarration, buildFreeActionPrompt, parseFreeAction, buildTacticsPrompt, parseTactics, describeCombatants
 } from '../src/systems/mechanics/combat/aiPrompts.js';
 import { matchStatBlocks, looksGeneric, baseName, findKnown, mentions } from '../src/systems/mechanics/combat/npcs.js';
 import { buildRoster } from '../src/systems/mechanics/combat/roster.js';
@@ -129,4 +129,13 @@ test('flavour descriptions reach the prompts', () => {
 
     const surge = normalizeAbility({ name: 'Surge', advantages: ['separateTargets'], effects: [{ type: 'damage', dice: 3, damageType: 'slash' }, { type: 'heal', dice: 1, target: 'self' }] });
     assert.equal(describeAbility(surge), '3d6 slash damage, heals 1d6 (→ self) → one enemy (attack roll); separate targets');
+});
+
+test('the player\'s pronouns from the sheet reach the combatant list', () => {
+    const player = { name: 'Lem', side: 'party', isPlayer: true, hp: 40, maxHp: 40, block: { pronouns: 'she/her' } };
+    const foe = { name: 'Goblin', side: 'enemies', hp: 10, maxHp: 20, block: { description: 'A wiry goblin.' } };
+    const text = describeCombatants([player, foe]);
+    assert.match(text, /- Lem \(the user's character, she\/her, healthy\)/);
+    assert.match(text, /- Goblin \(enemy, hurt\)\. A wiry goblin\./);
+    assert.doesNotMatch(describeCombatants([{ ...player, block: {} }]), /,\s*,/);
 });
