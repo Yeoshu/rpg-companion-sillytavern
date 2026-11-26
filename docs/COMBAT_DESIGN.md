@@ -478,6 +478,20 @@ description.
 - Loading a sheet from the library **copies** it into the chat.
 - "Save to library" writes it back, either overwriting the entry or as a copy.
 - Import and export as a JSON file make sheets shareable.
+- **Persona link** (🔗 on a saved character): links it to the active persona
+  (one character per persona). A fresh chat with that persona (empty sheet,
+  level 1, no EXP) starts with the character loaded, including its level,
+  and saving the sheet in a chat with that persona updates the saved copy.
+  Chats that already have a character are never overwritten.
+- **Class templates** (`extensionSettings.classTemplates`, global): level-1
+  builds to start a character from. "Save as class" stores the current
+  attributes, skills, bought values, resistances, abilities, items and Strike
+  at level 1, and refuses builds that cost more than a level-1 character has
+  (the power level's starting pool). Applying one replaces those parts of the
+  sheet; the name, level, bonus and glimmer points stay, so a level-3
+  character keeps the CP it has on top. A class that costs more than the
+  current power level allows is flagged. Templates import and export like
+  saved characters.
 
 **Stat block schema** (the same for the player, allies and enemies):
 

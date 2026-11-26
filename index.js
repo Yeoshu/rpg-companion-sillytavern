@@ -152,7 +152,7 @@ import { attachQueuedRollTo, updateDiceInjection } from './src/systems/mechanics
 import { getProgression } from './src/systems/features/experience.js';
 import { DEFAULT_PROGRESSION } from './src/systems/mechanics/progression.js';
 import { normalizeCombatSettings } from './src/systems/mechanics/combat/catalog.js';
-import { getCombatSettings } from './src/systems/features/sheet.js';
+import { applyLinkedCharacter, getCombatSettings } from './src/systems/features/sheet.js';
 import { openEncounterLogs } from './src/systems/ui/encounterLogViewer.js';
 import { getAttributes } from './src/systems/mechanics/character.js';
 
@@ -1597,6 +1597,19 @@ jQuery(async () => {
                 if (evt) eventSource.on(evt, () => setTimeout(() => updateDiceDisplay(), 0));
             }
             $(document).on('rpg:diceRollChanged', () => updateDiceDisplay());
+
+            // A saved character linked to the persona starts every fresh chat with that persona.
+            // (SETTINGS_UPDATED also fires when the persona changes.)
+            const loadLinkedCharacter = () => setTimeout(() => {
+                try {
+                    const entry = applyLinkedCharacter();
+                    if (entry) toastr.info(i18n.getTranslation('sheet.linkedLoaded') || 'Loaded the saved character linked to your persona.', $('<div>').text(entry.name).html(), { timeOut: 4000 });
+                } catch (error) {
+                    console.error('[RPG Companion] Loading the linked character failed:', error);
+                }
+            }, 300);
+            eventSource.on(event_types.CHAT_CHANGED, loadLinkedCharacter);
+            eventSource.on(event_types.SETTINGS_UPDATED, loadLinkedCharacter);
             $(document).on('rpg:progressionChanged', () => {
                 renderUserStats();
                 updateFabWidgets();

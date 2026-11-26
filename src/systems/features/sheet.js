@@ -5,11 +5,14 @@
  * saved character sheets.
  *
  * Per chat: extensionSettings.combatSheet (saved in chat_metadata).
- * Global:   extensionSettings.sheetLibrary, extensionSettings.combat.
+ * Global:   extensionSettings.sheetLibrary (saved characters, optionally linked
+ *           to a persona), extensionSettings.classTemplates (level-1 builds),
+ *           extensionSettings.combat.
  * See docs/COMBAT_DESIGN.md §1, §7 and §10.
  */
 
 import { getContext } from '../../../../../../extensions.js';
+import { getCurrentChatId, user_avatar } from '../../../../../../../script.js';
 import { extensionSettings } from '../../core/state.js';
 import { saveSettings, saveChatData } from '../../core/persistence.js';
 import { getAttributes, getSkills } from '../mechanics/character.js';
@@ -281,8 +284,13 @@ export function normalizeSnapshot(raw) {
  */
 export function saveToLibrary(name, parts = currentParts(), replaceId = null) {
     const library = getLibrary();
-    const entry = { id: replaceId || newId(), savedAt: Date.now(), ...snapshotFrom(parts, name) };
     const i = replaceId ? library.findIndex(e => e.id === replaceId) : -1;
+    const entry = { id: replaceId || newId(), savedAt: Date.now(), ...snapshotFrom(parts, name) };
+    // Overwriting keeps the persona link.
+    if (i >= 0 && library[i].persona) {
+        entry.persona = library[i].persona;
+        entry.personaName = library[i].personaName;
+    }
     if (i >= 0) library[i] = entry;
     else library.push(entry);
     saveSettings();
@@ -317,3 +325,170 @@ export function downloadSnapshot(snapshot) {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/* ---------------------------------------------------------------------------
+   Persona links: a saved character that belongs to a persona is loaded into
+   fresh chats with that persona, and kept up to date when the sheet is saved.
+   --------------------------------------------------------------------------- */
+
+/** The active persona: { key: its avatar file (SillyTavern's persona id), name }. */
+export function currentPersona() {
+    let context = {};
+    try { context = getContext() || {}; } catch { /* no context */ }
+    const key = context.user_avatar || user_avatar || '';
+    return { key: String(key), name: context.name1 || playerName() };
+}
+
+/** The saved character linked to a persona (default: the active one), or null. */
+export function linkedEntry(personaKey = currentPersona().key) {
+    if (!personaKey) return null;
+    return getLibrary().find(e => e.persona === personaKey) || null;
+}
+
+/** Links a saved character to the active persona (a persona has at most one). */
+export function linkToPersona(id) {
+    const { key, name } = currentPersona();
+    if (!key) return null;
+    let linked = null;
+    for (const e of getLibrary()) {
+        if (e.id === id) {
+            e.persona = key;
+            e.personaName = name;
+            linked = e;
+        } else if (e.persona === key) {
+            delete e.persona;
+            delete e.personaName;
+        }
+    }
+    saveSettings();
+    return linked;
+}
+
+export function unlinkPersona(id) {
+    const e = getLibrary().find(x => x.id === id);
+    if (!e) return;
+    delete e.persona;
+    delete e.personaName;
+    saveSettings();
+}
+
+/** A chat whose character hasn't been set up yet: empty sheet, level 1, no EXP. */
+export function isFreshCharacter() {
+    const sheet = extensionSettings.combatSheet;
+    const empty = !sheet || JSON.stringify(normalizeSheet(sheet)) === JSON.stringify(emptySheet());
+    return empty && (Math.floor(extensionSettings.level) || 1) <= 1 && !(Number(extensionSettings.exp) > 0);
+}
+
+/**
+ * Loads the active persona's linked character into this chat, if the chat's
+ * character is still fresh. Called when the chat or the persona changes.
+ * @returns {object|null} the entry loaded
+ */
+let linkedAppliedTo = null; // "chat|persona" last loaded, so it happens once per chat and persona
+
+export function applyLinkedCharacter() {
+    if (!extensionSettings.enabled) return null;
+    let chatId = null;
+    try { chatId = getCurrentChatId(); } catch { /* no chat */ }
+    if (!chatId || !isFreshCharacter()) return null;
+    const entry = linkedEntry();
+    if (!entry) return null;
+    const key = `${chatId}|${entry.persona}`;
+    if (linkedAppliedTo === key) return null;
+    const parts = partsFromSnapshot(entry);
+    if (!parts) return null;
+    linkedAppliedTo = key;
+    applyParts(parts);
+    return entry;
+}
+
+/** After the sheet is saved in a chat: updates the active persona's linked character. */
+export function syncLinkedCharacter(parts = currentParts()) {
+    const entry = linkedEntry();
+    if (!entry) return null;
+    return saveToLibrary(entry.name, parts, entry.id);
+}
+
+/* ---------------------------------------------------------------------------
+   Class templates: level-1 builds (attributes, skills, abilities, items) to
+   start a character from. Global, like the library.
+   --------------------------------------------------------------------------- */
+
+export function getClassTemplates() {
+    if (!Array.isArray(extensionSettings.classTemplates)) extensionSettings.classTemplates = [];
+    return extensionSettings.classTemplates;
+}
+
+/** CP a build costs at level 1 (bonus and glimmer points don't count). */
+export function classTemplateCost(parts) {
+    const p = sheetPoints({ ...parts, sheet: { ...normalizeSheet(parts.sheet), bonusPoints: 0, glimmerPoints: 0 }, level: 1 });
+    return { spent: p.total, budget: p.base };
+}
+
+/** The template form of a build: level 1, no earned bonus points. */
+function classSnapshot(parts, name) {
+    const snap = snapshotFrom({ ...parts, level: 1 }, name);
+    snap.level = 1;
+    snap.bonusPoints = 0;
+    snap.glimmerPoints = 0;
+    snap.kind = 'class';
+    return snap;
+}
+
+/**
+ * Saves a build as a class template.
+ * @returns {{ entry?: object, error?: string, spent: number, budget: number }}
+ *   error 'overBudget' when the build costs more than a level-1 character has
+ */
+export function saveClassTemplate(name, parts = currentParts(), replaceId = null) {
+    const { spent, budget } = classTemplateCost(parts);
+    if (spent > budget) return { error: 'overBudget', spent, budget };
+    const list = getClassTemplates();
+    const entry = { id: replaceId || newId(), savedAt: Date.now(), ...classSnapshot(parts, name) };
+    const i = replaceId ? list.findIndex(e => e.id === replaceId) : -1;
+    if (i >= 0) list[i] = entry;
+    else list.push(entry);
+    saveSettings();
+    return { entry, spent, budget };
+}
+
+export function deleteClassTemplate(id) {
+    extensionSettings.classTemplates = getClassTemplates().filter(e => e.id !== id);
+    saveSettings();
+}
+
+/** Adds an imported file (a class template or any saved character) as a class template. */
+export function importClassTemplate(raw) {
+    const snap = normalizeSnapshot(raw);
+    if (!snap) return null;
+    const entry = { ...snap, level: 1, bonusPoints: 0, glimmerPoints: 0, kind: 'class', id: newId(), savedAt: Date.now() };
+    getClassTemplates().push(entry);
+    saveSettings();
+    return entry;
+}
+
+/**
+ * A working copy with a class template applied: the template's attributes,
+ * skills, abilities, items, bought values, resistances and Strike replace the
+ * current ones (tracked attributes it doesn't list go to 10, skills to 0).
+ * The level, bonus points and glimmer points stay.
+ */
+export function partsWithClass(work, template) {
+    const parts = partsFromSnapshot(template);
+    if (!parts) return null;
+    const attributes = Object.fromEntries(Object.keys(work.attributes || {}).map(k => [k, 10]));
+    const skills = Object.fromEntries(Object.keys(work.skills || {}).map(k => [k, 0]));
+    const sheet = normalizeSheet({
+        ...parts.sheet,
+        bonusPoints: work.sheet?.bonusPoints || 0,
+        glimmerPoints: work.sheet?.glimmerPoints || 0,
+        glimmerPreferences: work.sheet?.glimmerPreferences || ''
+    });
+    return {
+        ...work,
+        sheet,
+        attributes: { ...attributes, ...parts.attributes },
+        skills: { ...skills, ...parts.skills }
+    };
+}
+

@@ -260,7 +260,8 @@ export let extensionSettings = {
     skillLevels: {}, // Per-chat skill levels, keyed by lowercase skill name
     exp: 0, // Per-chat EXP towards the next level
     combatSheet: null, // Per-chat combat sheet: bought values, resistances, abilities, items (features/sheet.js)
-    sheetLibrary: [], // Saved character sheets, reusable across chats
+    sheetLibrary: [], // Saved character sheets, reusable across chats (optionally linked to a persona)
+    classTemplates: [], // Level-1 builds to start a character from (global)
     statBlocks: {}, // Per-chat stat blocks of recurring NPCs, keyed by lowercase name (they keep their HP between fights)
     npcTemplates: [], // Generic stat blocks ("Goblin") reusable in any chat
     encounterLogs: [], // Per-chat logs of the last fights (features/combatAftermath.js)
